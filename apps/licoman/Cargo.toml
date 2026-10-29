@@ -1,0 +1,17 @@
+[package]
+name = "licoman"
+description = "Licoman — Linux Configuration Manager: a universal interface for Linux configuration."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "licoman"
+path = "src/main.rs"
+
+[dependencies]
+gpui-kit = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+ashpd = { workspace = true }
