@@ -98,3 +98,34 @@ plan's truthfulness requirement applied to sample data.
 Preferences is a dedicated native window (allowed by the spec: "dedicated
 in-app view or native window"), opened or focused by the header gear button
 and `Ctrl+,`. It is not a third always-open pane.
+
+## D12 — Keyboard-injection tooling: unavailable; walkthrough stays human
+
+The keyboard-only walkthrough gate needs key injection. Findings on this
+machine (2026-10-30): no injection tool exists (`wtype`, `ydotool`, `dotool`,
+`kdotool`, `wlrctl` are absent and installing packages is out of bounds);
+Hyprland 0.56.2's `sendshortcut` dispatcher reports `ok` for every form tried
+(`MODS,KEY,class:^…$`, `MODS,KEY,address:…`) but the synthesized keys never
+arrive at the gpui client (no user keybind conflicts exist); and this Hyprland
+build rejects `wl_display.sync` from hand-rolled clients, killing the
+connection. A WIP virtual-keyboard client (`tests/tools/vk_injector.c`,
+`zwp_virtual_keyboard_v1` + xkbcommon US keymap — the same mechanism `wtype`
+uses) connects, enumerates globals and uploads its keymap, but injection does
+not work yet: the connection is dropped right after the registry binds.
+**Decision:** the keyboard walkthrough remains an explicitly human gate and
+the report keeps it **partial**; further injector effort was deferred at the
+user's direction (2026-10-30). Nothing observed (captures, window behavior)
+suggests broken focus; the stop-condition assessment is unchanged.
+
+## D13 — Fractional-scaling verification via a temporary headless output
+
+To exercise fractional scaling without touching the user's monitor settings,
+the verification session created a runtime-only headless output
+(`hyprctl output create headless LICOMANTEST`, then
+`hyprctl keyword monitor LICOMANTEST,1920x1080@60,2560x0,1.5`), moved the
+window onto it, captured with `grim -o`, and removed the output. Runtime
+keywords never persist to `hyprland.conf` and the removal restored the
+single-monitor session. Result: the app applied the 1.5 fractional scale
+natively — the 760×560 logical window renders a 1140×840 physical buffer with
+intact tokens (`#0E1117` sampled) and crisp text — evidence for the
+"fractional scaling" acceptance item.

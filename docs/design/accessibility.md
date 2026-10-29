@@ -29,9 +29,12 @@ interaction layer; sidebar items expose `accessibility_label`).
 
 ## Manual keyboard-only verification checklist (human session required)
 
-Recorded as **not yet executed** — no keyboard-injection tool (wtype/ydotool)
-was available to the automated session; the following must be walked through
-by a person on a real session:
+Still **not executed** automatically. An automated attempt was made on
+2026-10-30 and is documented in decisions.md D12: no injection tool exists on
+the machine; Hyprland's `sendshortcut` synthesizes keys that never reach the
+gpui client; a WIP `zwp_virtual_keyboard_v1` injector
+(`tests/tools/vk_injector.c`) does not work against this Hyprland build yet.
+The following must be walked through by a person on a real session:
 
 1. Launch → Tab to sidebar → select Desktop scope → open Applications window.
 2. `Ctrl+K` → type "power" → `↓`/`↑` → `Enter` → palette closes, scope jumps.
@@ -56,5 +59,8 @@ both canvases in rendered screenshots.
 - Row controls wrap below the label column when narrow (flex-wrap).
 - Fonts follow the toolkit's font-size pipeline (theme base 14, mono 12);
   system font scaling applies through gpui's rem handling.
-- Fractional scaling and narrow-window captures are listed as pending manual
-  verification in the phase report.
+- Fractional scaling and narrow-window captures were taken 2026-10-30 (see
+  the phase report addendum): the app renders natively at output scale 1.5
+  (760×560 logical → 1140×840 physical, tokens intact), and both windows
+  reflow at their spec minimum sizes (760×560 / 780×560) with wrapped labels
+  and aligned controls.

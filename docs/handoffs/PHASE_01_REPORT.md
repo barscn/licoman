@@ -248,6 +248,12 @@ the focus-related keyboard walk-through remains a manual gate — treat the
 keyboard path as the open item before starting Phase 02's heavy shell work if
 strictness is desired; nothing observed suggests broken focus.
 
+> **2026-10-30 addendum:** the narrow-window and fractional-scaling gates
+> moved to **pass** (new captures below), the `System`-mode signal path was
+> verified end-to-end against the real desktop portal, and the keyboard
+> walkthrough remains **partial** with injection-tool findings recorded.
+> See the full Addendum at the end of this report and decisions.md D12/D13.
+
 **Deferred to later phases (by plan):** real discovery (03), registry (04),
 read backends (05), safe write engine (06), first real writes (07),
 expansion (08), measured contrast + packaging + high-contrast pass (09),
@@ -270,3 +276,85 @@ rm -rf apps docs Cargo.toml Cargo.lock README.md .gitignore target
 
 Nothing outside the workspace was modified; no commits were created by the
 automated session (left for the user to review and commit).
+
+---
+
+## Addendum — same-day verification session (2026-10-30)
+
+A follow-up session closed the report's open items without changing any
+application source. The only code-adjacent addition is a WIP test harness
+(§A5). (Phase 01 itself was reviewed, committed and pushed as `9ad749f` on
+`origin/main` between the two sessions.)
+
+### A1. Baseline checks re-run (all green, none skipped)
+
+| Command | Result |
+|---|---|
+| `cargo fmt --all -- --check` | **pass** |
+| `cargo test --workspace` | **pass** — 16/16, 0 failed, 0 ignored |
+| `cargo clippy --workspace --all-targets -- -D warnings` | **pass** — 0 warnings |
+| `cargo build --workspace --release` | **pass** |
+
+Fresh-launch re-verified with no preferences file present: canvas sampled
+`srgb(14,17,23)` = `#0E1117` — **Dark default confirmed again**.
+
+### A2. New visual evidence (`docs/screenshots/`)
+
+| File | Shows |
+|---|---|
+| `main-window-narrow-dark.png` | Main window at spec minimum 760×560, fresh Shared scope: wrapped descriptions, aligned controls, apply bar — nothing clips |
+| `apps-window-narrow-light.png` | Applications window at spec minimum 780×560 in Light: filter list with support pills, tabs, number/slider/switch controls reflowed |
+| `main-window-scale-1-5-dark.png` | Main window on a scale-1.5 output: native 1140×840 render of the 760×560 window, crisp text, tokens intact |
+| `preferences-system-dark.png` | Preferences with `theme = "system"`: System radio selected and the live-resolution disclosure |
+
+### A3. `System` mode against the real desktop signal
+
+`xdg-desktop-portal-gtk` is this session's settings backend;
+`Settings.ReadOne("org.freedesktop.appearance", "color-scheme")` (read-only)
+returns **1 = prefer-dark**. With Licoman's own preferences file set to
+`theme = "system"`:
+
+- both windows painted dark; the main-window canvas sampled `#0E1117`;
+- Preferences disclosed the live resolution: *"System: following the desktop
+  signal (dark). If it becomes unavailable, Licoman uses Dark."*
+
+That verifies the signal path end-to-end (portal read → resolve → apply →
+disclose) **without modifying any desktop setting**; the test file was
+removed afterwards. A live mid-run light↔dark toggle remains un-exercised
+because it would require changing the desktop color scheme, which the phase
+gates forbid; the appearance-observer wiring is in place on both windows and
+the mode mapping is unit-tested.
+
+### A4. Gate status changes
+
+| Gate (plan §8) | Was | Now |
+|---|---|---|
+| Long labels, large text, fractional scaling, narrow windows usable | partial | **pass** — narrow captures (A2) + native 1.5× fractional-scaling capture (A2, D13) |
+| System follows OS theme where integration exists, else explicit Dark fallback | pass (detection unexercised) | **pass, strengthened** — live portal read + resolution + disclosure verified (A3); mid-run toggle still requires a manual DE change |
+| Both native windows keyboard-navigable | partial | **partial (unchanged)** — see A5; remains the open human gate |
+
+### A5. Keyboard-only path: injection findings (gate unchanged)
+
+- No injection tool exists on this machine (`wtype`, `ydotool`, `dotool`,
+  `kdotool`, `wlrctl` absent; installing packages is out of bounds).
+- Hyprland 0.56.2's `sendshortcut` dispatcher reports `ok` for every form
+  tried (`MODS,KEY,class:^…$` and `MODS,KEY,address:…`; no user keybind
+  conflicts) but synthesized keys never reach the gpui client.
+- A WIP virtual-keyboard client was added at `tests/tools/vk_injector.c`
+  (`zwp_virtual_keyboard_v1` + xkbcommon US keymap — the same mechanism
+  `wtype` uses). It connects, enumerates globals, binds seat + manager and
+  uploads its keymap, but this Hyprland build drops the connection after the
+  registry binds (it also rejects `wl_display.sync` from hand-rolled
+  clients). Not functional; kept as the Phase 02+ starting point — decisions
+  D12. **Further injector work was deferred at the user's direction
+  (2026-10-30)**; the keyboard walkthrough stays a human-executed gate.
+- Stop-condition assessment unchanged: multi-window theme propagation is
+  verified through captures (both windows, both themes, single
+  `Theme::change` refresh) and nothing observed suggests broken focus.
+
+### A6. Cleanup performed
+
+Temporary headless output removed (`hyprctl output remove`; runtime keywords
+only — nothing persisted to `hyprland.conf`); the test preferences file was
+deleted so a fresh install is again the current state; all app windows were
+closed; no OS/DE/distro/app configuration was modified at any point.

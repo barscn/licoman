@@ -51,6 +51,7 @@ docs/design/         # Quiet Control design system documents
 docs/handoffs/       # per-phase reports (PHASE_01_REPORT.md …)
 docs/screenshots/    # captured on a real Hyprland/Wayland session
 tests/fixtures/      # strictly isolated fixtures (used from Phase 03 on)
+tests/tools/         # dev verification harnesses (WIP Wayland key injector)
 ```
 
 Planned crate boundaries (`crates/core`, `crates/registry`, `crates/backends`,
