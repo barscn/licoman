@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.licoman.Test" path="/org/licoman/test/">
+    <key name="color-scheme" type="s">
+      <default>'default'</default>
+      <summary>Color scheme preference</summary>
+      <description>Testing schema for discovery fixtures.</description>
+    </key>
+    <key name="font-name" type="s">
+      <default>'Sans 11'</default>
+      <summary>Font name</summary>
+    </key>
+    <key name="clock-show-date" type="b">
+      <default>false</default>
+      <summary>Show date in clock</summary>
+    </key>
+  </schema>
+  <schema id="org.licoman.Second" path="/org/licoman/second/">
+    <key name="enabled" type="b">
+      <default>true</default>
+      <summary>Enabled</summary>
+    </key>
+  </schema>
+</schemalist>

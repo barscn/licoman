@@ -53,8 +53,17 @@ pub fn open_main_window(
 }
 
 pub fn open_apps_window(app: &Entity<AppState>, cx: &mut App) -> AnyWindowHandle {
+    open_apps_window_returning_entity(app, cx).0
+}
+
+/// Like [`open_apps_window`] but also returns the window entity, for demo
+/// hooks that need to adjust view state after opening.
+pub fn open_apps_window_returning_entity(
+    app: &Entity<AppState>,
+    cx: &mut App,
+) -> (AnyWindowHandle, Entity<AppsWindow>) {
     let app = app.clone();
-    let (handle, _) = gpui_kit::open_window(
+    let (handle, entity) = gpui_kit::open_window(
         window_options(
             metrics::APPS_WINDOW_SIZE,
             metrics::APPS_WINDOW_MIN,
@@ -64,7 +73,7 @@ pub fn open_apps_window(app: &Entity<AppState>, cx: &mut App) -> AnyWindowHandle
         |window, cx| cx.new(|cx| AppsWindow::new(app, window, cx)),
     )
     .expect("failed to open applications window");
-    handle
+    (handle, entity)
 }
 
 pub fn open_preferences_window(app: &Entity<AppState>, cx: &mut App) -> AnyWindowHandle {

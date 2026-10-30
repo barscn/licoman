@@ -1,0 +1,8 @@
+NAME="Fedora Linux"
+VERSION="43 (Workstation Edition)"
+ID=fedora
+ID_LIKE="fedora rhel"
+VERSION_ID=43
+PLATFORM_ID="platform:f43"
+PRETTY_NAME="Fedora Linux 43 (Workstation Edition)"
+ANSI_COLOR="0;38;2;60;110;180"

@@ -15,6 +15,13 @@ gpui-kit = "0.8"
 serde = { version = "1", features = ["derive"] }
 toml = "0.9"
 ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
+# Filesystem notifications for discovery-cache invalidation (Phase 03).
+# Deliberately in the UI adapter, not the core: licoman-core stays
+# dependency-free and the adapter owns all timing/watching (D26).
+notify = "8"
+# futures channels bridge the notify watcher thread to the main-thread
+# executor (async awaits, never blocking). Already in the tree via gpui.
+futures = "0.3"
 
 [profile.release]
 lto = "thin"

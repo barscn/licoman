@@ -11,6 +11,28 @@ use licoman_ui::actions::*;
 use licoman_ui::app_state::{AppState, WindowRegistry};
 use licoman_ui::{theme, windows};
 
+/// Headless environment diagnostics: run read-only discovery and print the
+/// redacted export. No window, no preferences, no writes.
+fn run_diagnostics() {
+    licoman_core::log::init_from_env(licoman_core::log::Level::Warn);
+    let sources = licoman_core::discovery::DiscoverySources::from_environment();
+    let home = sources.env.get("HOME").map(String::as_str);
+    let (snapshot, _status, timings) = licoman_core::discovery::discover(
+        &sources,
+        &licoman_core::discovery::ScanControl::new(),
+        &|_| {},
+    );
+    print!(
+        "{}",
+        licoman_core::discovery::export::diagnostics_text(&snapshot, home)
+    );
+    licoman_core::log::info(
+        "licoman::diagnostics",
+        "diagnostics export completed",
+        &[("total_us", timings.total_micros.to_string())],
+    );
+}
+
 fn main() {
     match cli::parse(std::env::args().skip(1)) {
         cli::Parsed::PrintAndSucceed(text) => {
@@ -20,6 +42,10 @@ fn main() {
         cli::Parsed::Fail(text) => {
             eprintln!("{text}");
             std::process::exit(2);
+        }
+        cli::Parsed::Diagnostics => {
+            run_diagnostics();
+            std::process::exit(0);
         }
         cli::Parsed::Run => {}
     }
@@ -83,6 +109,21 @@ fn main() {
             cx.set_global(WindowRegistry::default());
             let app = cx.new(|_| AppState::new(store));
 
+            // Environment discovery (Phase 03). Demo fixture names replace
+            // discovery with a deterministic snapshot; every other run
+            // discovers the real environment off the UI thread and watches
+            // the application directories for changes.
+            if licoman_core::discovery::demo_fixtures::demo_snapshot(&demo).is_some() {
+                app.update(cx, |state, cx| {
+                    state.load_demo_environment(&demo, cx);
+                });
+            } else {
+                app.update(cx, |state, cx| {
+                    state.ensure_environment_watcher(cx);
+                    state.start_discovery(cx);
+                });
+            }
+
             match demo.as_str() {
                 "failed" => app.update(cx, |state, cx| {
                     state.store.simulate_failed("shared.network.dns");
@@ -126,8 +167,11 @@ fn main() {
             if demo == "palette" {
                 main_window.update(cx, |this, _cx| this.demo_open_palette());
             }
-            if demo == "apps" || demo == "light-apps" {
-                let handle = windows::open_apps_window(&app, cx);
+            if demo == "apps" || demo == "light-apps" || demo == "all-apps" {
+                let (handle, apps_window) = windows::open_apps_window_returning_entity(&app, cx);
+                if demo == "all-apps" {
+                    apps_window.update(cx, |this, _cx| this.demo_show_all());
+                }
                 cx.global_mut::<WindowRegistry>()
                     .set_handle(licoman_core::WindowRole::Applications, handle);
             }

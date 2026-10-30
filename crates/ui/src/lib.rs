@@ -7,6 +7,7 @@
 
 pub mod actions;
 pub mod app_state;
+pub mod environment_watch;
 pub mod theme;
 pub mod ui;
 pub mod windows;

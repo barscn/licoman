@@ -17,3 +17,6 @@ gpui-kit = { workspace = true }
 # `async-io` + `settings`, nothing else. Any mismatch fails the build with a
 # compile_error! from ashpd itself. Licoman does not call ashpd directly.
 ashpd = { workspace = true }
+# inotify-backed application-directory watching, debounced in the adapter.
+notify = { workspace = true }
+futures = { workspace = true }

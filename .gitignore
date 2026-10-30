@@ -2,3 +2,6 @@
 flamegraph.svg
 *.profraw
 .DS_Store
+
+# ZCode session-local working files
+.zcode/

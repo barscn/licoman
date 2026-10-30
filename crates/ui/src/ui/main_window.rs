@@ -4,6 +4,7 @@
 //! Rendering reads owned snapshots from the core store; every intent goes
 //! through `AppState::dispatch` with a typed command.
 
+use crate::app_state::ScanState;
 use gpui_kit::component::IndexPath;
 use gpui_kit::component::TitleBar;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -24,7 +25,6 @@ use gpui_kit::{
 };
 use licoman_core::descriptor::{ApplyMode, Control, Scope, SettingDescriptor};
 use licoman_core::error::ErrorKind;
-use licoman_core::mock::MOCK_ENVIRONMENT;
 use licoman_core::state::SettingPhase;
 use licoman_core::value::SettingValue;
 use licoman_core::{Command, SettingModel, WindowRole};
@@ -244,7 +244,7 @@ impl MainWindow {
                     this.select_resync_needed = true;
                     cx.notify();
                 }
-                AppEvent::PreferencesChanged => cx.notify(),
+                AppEvent::PreferencesChanged | AppEvent::EnvironmentChanged => cx.notify(),
             }
         }));
 
@@ -824,8 +824,30 @@ impl MainWindow {
                 })),
         );
 
-        let environment = v_flex()
-            .px_3()
+        // Grounded environment summary (03_ENVIRONMENT_DISCOVERY.md UI
+        // details): distro · desktop · protocol, each part omitted when
+        // undetected, plus the live scan status. Partial results show as
+        // they arrive — no pretending.
+        let (summary, status_line) = {
+            let state = self.app.read(cx);
+            let summary = state
+                .environment_snapshot()
+                .map(|snapshot| snapshot.summary());
+            let status_line = match state.scan_state() {
+                ScanState::Loading { .. } => Some("Discovering environment…".to_string()),
+                ScanState::Cancelled => Some("Scan cancelled — refreshing…".to_string()),
+                ScanState::Idle => Some("Discovery pending…".to_string()),
+                ScanState::Ready => None,
+            };
+            (summary, status_line)
+        };
+
+        // The sidebar footer's h_flex leaves children unconstrained; without
+        // an explicit width a long summary renders as one clipped line.
+        // Constrain to the sidebar content width (244 − 2×12 padding) so the
+        // text wraps honestly instead of disappearing.
+        let mut environment = v_flex()
+            .w(px(metrics::SIDEBAR_WIDTH - 24.))
             .pb_3()
             .gap_1()
             .child(
@@ -835,18 +857,20 @@ impl MainWindow {
                     .text_color(theme.muted_foreground)
                     .child("Environment"),
             )
-            .children(MOCK_ENVIRONMENT.iter().map(|(name, _kind)| {
+            .child(
                 div()
                     .text_size(px(metrics::TEXT_BODY))
                     .text_color(theme.foreground)
-                    .child(*name)
-            }))
-            .child(
+                    .child(summary.unwrap_or_else(|| "Discovering environment…".to_string())),
+            );
+        if let Some(status_line) = status_line {
+            environment = environment.child(
                 div()
                     .text_size(px(metrics::TEXT_META))
                     .text_color(theme.muted_foreground)
-                    .child("Sample data — real discovery arrives in Phase 03."),
+                    .child(status_line),
             );
+        }
 
         Sidebar::new("scope-sidebar")
             .w(px(metrics::SIDEBAR_WIDTH))

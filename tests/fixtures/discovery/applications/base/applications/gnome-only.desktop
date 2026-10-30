@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=GNOME Only Tool
+Exec=gnome-only
+OnlyShowIn=GNOME;

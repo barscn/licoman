@@ -1,6 +1,7 @@
-//! Command-line surface: `--help`, `--version`, and argument errors. Pure and
-//! unit tested; `main` maps the parsed outcome to stdout/stderr and exit
-//! codes. No external argument parser is introduced for two flags.
+//! Command-line surface: `--help`, `--version`, `--diagnostics`, and
+//! argument errors. Pure and unit tested; `main` maps the parsed outcome to
+//! stdout/stderr and exit codes. No external argument parser is introduced
+//! for three flags.
 
 /// The version string reported by `--version`.
 pub fn version_string() -> String {
@@ -49,6 +50,8 @@ pub fn help_text() -> String {
 pub enum Parsed {
     /// Launch the application.
     Run,
+    /// Run headless discovery and print the redacted diagnostics export.
+    Diagnostics,
     /// Print text to stdout and exit 0.
     PrintAndSucceed(String),
     /// Print text to stderr and exit 2.
@@ -65,6 +68,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Parsed {
     match arg.as_str() {
         "-h" | "--help" => Parsed::PrintAndSucceed(help_text()),
         "-V" | "--version" => Parsed::PrintAndSucceed(version_string()),
+        "--diagnostics" => Parsed::Diagnostics,
         _ => Parsed::Fail(format!(
             "licoman: unrecognized argument '{arg}'\nTry 'licoman --help' for usage."
         )),
@@ -97,6 +101,11 @@ mod tests {
         assert_eq!(version, version_string());
         assert!(version.starts_with("licoman "));
         assert!(!version.contains('\n'));
+    }
+
+    #[test]
+    fn diagnostics_flag_is_recognized() {
+        assert_eq!(parse(args(&["--diagnostics"])), Parsed::Diagnostics);
     }
 
     #[test]

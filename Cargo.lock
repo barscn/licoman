@@ -3381,8 +3381,10 @@ name = "licoman-ui"
 version = "0.1.0"
 dependencies = [
  "ashpd",
+ "futures",
  "gpui-kit",
  "licoman-core",
+ "notify",
 ]
 
 [[package]]

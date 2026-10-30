@@ -4,11 +4,13 @@
 for Linux configuration, built with **Rust + GPUI + GPUI Kit**. No Electron,
 no browser UI, no embedded web view.
 
-> **Status: Phase 02 (production foundation) implemented.** The app runs on
-> a UI-independent core with a deterministic mock provider. No real
-> configuration is read or written yet — Licoman only ever writes its own
-> preferences file. See
-> [docs/handoffs/PHASE_02_REPORT.md](docs/handoffs/PHASE_02_REPORT.md) and
+> **Status: Phase 03 (environment discovery) implemented.** The app now
+> detects the real distribution, session and installed applications
+> (read-only, evidence-based, cancellable) and merges them with a
+> deterministic mock provider. No real configuration is read or written
+> yet — Licoman only ever writes its own preferences file. See
+> [docs/handoffs/PHASE_03_REPORT.md](docs/handoffs/PHASE_03_REPORT.md),
+> [docs/architecture/discovery.md](docs/architecture/discovery.md) and
 > [docs/architecture/README.md](docs/architecture/README.md).
 
 ## Developer commands
@@ -52,9 +54,17 @@ diagnostic; domain tests run fine headless.
 | `dirty` | One staged edit + apply bar |
 | `palette` | Global search palette open |
 | `empty` | No providers registered (unavailable state) |
+| `arch-hyprland`, `fedora-gnome`, `ubuntu-x11`, `debian-xfce`, `multi-xdg`, `unknown` | Discovery demo snapshots built through the real parsers (environments this machine cannot run) |
+| `all-apps` | Applications window opened directly in the "All installed" view |
 
 ```sh
 LICOMAN_DEMO=apps cargo run -p licoman
+```
+
+Environment diagnostics (headless, read-only, redacted):
+
+```sh
+cargo run -p licoman -- --diagnostics
 ```
 
 Logs: `LICOMAN_LOG=info cargo run -p licoman` (structured key=value records
@@ -66,11 +76,11 @@ on stderr; ids and counts only — never setting values).
 apps/licoman/        # executable: CLI, logging init, GPUI bootstrap
 crates/core/         # licoman-core: UI-independent domain (no GPUI)
 crates/ui/           # licoman-ui: Quiet Control themes + windows + views
-docs/architecture/   # crate boundaries and decision records (D14+)
+docs/architecture/   # boundaries, decision records (D14+), discovery.md
 docs/design/         # Quiet Control design system documents (Phase 01)
 docs/handoffs/       # per-phase reports (PHASE_01_REPORT.md, PHASE_02_REPORT.md …)
 docs/screenshots/    # captured on a real Hyprland/Wayland session
-tests/fixtures/      # strictly isolated fixtures (used from Phase 03 on)
+tests/fixtures/      # strictly isolated fixtures (discovery fixtures: Phase 03)
 tests/tools/         # dev verification harnesses (WIP Wayland key injector)
 .github/workflows/   # CI: headless core job + full gpui workspace job
 ```
@@ -83,7 +93,9 @@ tests/tools/         # dev verification harnesses (WIP Wayland key injector)
    Phase 02 decision records (D14–D24).
 3. [docs/design/README.md](docs/design/README.md) — the approved design
    system (tokens, layout, states, accessibility).
-4. [docs/handoffs/PHASE_02_REPORT.md](docs/handoffs/PHASE_02_REPORT.md) —
+4. [docs/architecture/discovery.md](docs/architecture/discovery.md) — how
+   read-only environment discovery works (sources, precedence, limits).
+5. [docs/handoffs/PHASE_03_REPORT.md](docs/handoffs/PHASE_03_REPORT.md) —
    what this phase did and how it was verified.
 5. The authoritative execution plan is the author's document pack
    (`Licoman_Development_Phases/00_START_HERE.md`); exactly one phase per

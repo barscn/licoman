@@ -49,7 +49,7 @@ pub struct Store {
     selected_scope: Scope,
     selected_category: Option<String>,
     // Applications-window selections (independent of the main window).
-    selected_app: Option<usize>,
+    selected_app: Option<String>,
     selected_app_tab: usize,
     // Licoman-only preferences — the single user-owned file Licoman writes.
     preferences: crate::prefs::Preferences,
@@ -73,7 +73,7 @@ impl Store {
             models: BTreeMap::new(),
             selected_scope: Scope::Shared,
             selected_category: None,
-            selected_app: Some(0),
+            selected_app: None,
             selected_app_tab: 0,
             preferences: preferences.preferences,
             preference_diagnostics: preferences.diagnostics,
@@ -196,8 +196,8 @@ impl Store {
         self.selected_category.as_deref()
     }
 
-    pub fn selected_app(&self) -> Option<usize> {
-        self.selected_app
+    pub fn selected_app(&self) -> Option<&str> {
+        self.selected_app.as_deref()
     }
 
     pub fn selected_app_tab(&self) -> usize {
@@ -275,8 +275,8 @@ impl Store {
                     preferences_changed: false,
                 }
             }
-            Command::SelectApp { index } => {
-                self.selected_app = index;
+            Command::SelectApp { id } => {
+                self.selected_app = id;
                 DispatchReport {
                     outcome: Outcome::Accepted,
                     settings_changed: false,

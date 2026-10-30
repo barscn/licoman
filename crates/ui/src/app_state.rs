@@ -2,12 +2,26 @@
 //! UI intent into typed commands, emits observable events, drives the visible
 //! apply interval, applies Licoman themes to every window, and models
 //! single-instance window behavior with independent navigation histories.
+//!
+//! Phase 03 adds [`EnvironmentState`]: the discovery cache. Discovery runs
+//! stage by stage on the background executor (the UI thread never blocks),
+//! publishes partial snapshots after every stage, and is cancellable —
+//! `Refresh` cancels the in-flight scan and starts a new one. The cache holds
+//! safe metadata only; it is invalidated by explicit Refresh and by the
+//! debounced filesystem watcher (`environment_watch`), never pretending that
+//! cached *setting values* are fresh (those contracts arrive with real
+//! backends in Phase 05).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use gpui_kit::{AnyWindowHandle, App, Context, EventEmitter, Global};
 use licoman_core::command::DispatchReport;
+use licoman_core::discovery::{
+    AppListEntry, DiscoveryRun, DiscoverySources, EnvironmentSnapshot, ScanControl, ScanStage,
+    ScanStatus, build_app_list,
+};
 use licoman_core::prefs::AppearanceMode;
 use licoman_core::window_sessions::{OpenDecision, WindowSessions};
 use licoman_core::{Command, SettingPhase, Store, WindowRole};
@@ -18,6 +32,57 @@ pub enum AppEvent {
     SettingsChanged,
     /// Licoman preferences (theme) changed.
     PreferencesChanged,
+    /// Environment discovery progressed (loading, partial or ready).
+    EnvironmentChanged,
+}
+
+/// Where the discovery cache stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanState {
+    /// No discovery has run yet (or a demo fixture replaced discovery).
+    Idle,
+    /// A scan is running; `stage` is what is still to come.
+    Loading { stage: ScanStage },
+    /// The latest scan completed; the snapshot is current.
+    Ready,
+    /// The latest scan was cancelled (a Refresh always follows with a new
+    /// scan; this state is transient).
+    Cancelled,
+}
+
+/// The discovery cache owned by the adapter. Snapshot plus the derived,
+/// deterministic app/module merge — safe metadata only.
+pub struct EnvironmentState {
+    snapshot: Option<Arc<EnvironmentSnapshot>>,
+    app_list: Vec<AppListEntry>,
+    scan: ScanState,
+    control: Arc<ScanControl>,
+    /// Bumped per started scan; stale tasks must not publish.
+    generation: u64,
+    /// Demo fixtures replace discovery entirely (visual verification).
+    demo_locked: bool,
+}
+
+impl Default for EnvironmentState {
+    fn default() -> Self {
+        Self {
+            snapshot: None,
+            app_list: Vec::new(),
+            scan: ScanState::Idle,
+            control: Arc::new(ScanControl::new()),
+            generation: 0,
+            demo_locked: false,
+        }
+    }
+}
+
+impl EnvironmentState {
+    fn ingest(&mut self, run: &DiscoveryRun, scan: ScanState) {
+        let snapshot = Arc::new(run.snapshot());
+        self.app_list = build_app_list(&snapshot.installed_apps, &snapshot.available_backends);
+        self.snapshot = Some(snapshot);
+        self.scan = scan;
+    }
 }
 
 /// GPUI-side window registry: real window handles per role, with the
@@ -71,13 +136,145 @@ pub fn open_or_focus(
 
 pub struct AppState {
     pub store: Store,
+    environment: EnvironmentState,
+    /// Held for the process lifetime; the watcher thread is event-driven and
+    /// does no idle polling.
+    environment_watcher: Option<crate::environment_watch::EnvironmentWatcher>,
 }
 
 impl EventEmitter<AppEvent> for AppState {}
 
 impl AppState {
     pub fn new(store: Store) -> Self {
-        Self { store }
+        Self {
+            store,
+            environment: EnvironmentState::default(),
+            environment_watcher: None,
+        }
+    }
+
+    // ---- Environment discovery (Phase 03) ---------------------------------
+
+    /// Current snapshot, when at least one discovery stage has completed.
+    pub fn environment_snapshot(&self) -> Option<Arc<EnvironmentSnapshot>> {
+        self.environment.snapshot.clone()
+    }
+
+    /// The derived app/module list (rebuilt only when a snapshot is ingested,
+    /// never per render).
+    pub fn app_list(&self) -> &[AppListEntry] {
+        &self.environment.app_list
+    }
+
+    pub fn scan_state(&self) -> ScanState {
+        self.environment.scan
+    }
+
+    /// Start (or restart) discovery off the UI thread. Any in-flight scan is
+    /// cancelled first; stages publish partial snapshots as they complete.
+    pub fn start_discovery(&mut self, cx: &mut Context<Self>) {
+        if self.environment.demo_locked {
+            return;
+        }
+        self.environment.control.cancel();
+        self.environment.generation += 1;
+        let generation = self.environment.generation;
+        let control = Arc::new(ScanControl::new());
+        self.environment.control = control.clone();
+        self.environment.scan = ScanState::Loading {
+            stage: ScanStage::Distribution,
+        };
+        cx.emit(AppEvent::EnvironmentChanged);
+
+        cx.spawn(async move |this, cx| {
+            let sources = DiscoverySources::from_environment();
+            let mut run = DiscoveryRun::new();
+            while let Some(stage) = run.next_stage() {
+                // The stage itself runs on the background executor; the UI
+                // thread only publishes results. `run` travels into the
+                // closure and back so the loop keeps owning it.
+                let stage_control = control.clone();
+                let sources = sources.clone();
+                let status;
+                (run, status) = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let status = run.run_next_stage(&sources, &stage_control, &|_| {});
+                        (run, status)
+                    })
+                    .await;
+                let finished = run.next_stage().is_none();
+                let published = this.update(cx, |state, cx| {
+                    if state.environment.generation != generation {
+                        return; // a newer scan owns the cache now
+                    }
+                    let scan = match (status, finished) {
+                        (ScanStatus::Cancelled, _) => ScanState::Cancelled,
+                        (ScanStatus::Completed, true) => ScanState::Ready,
+                        (ScanStatus::Completed, false) => ScanState::Loading { stage },
+                    };
+                    state.environment.ingest(&run, scan);
+                    cx.emit(AppEvent::EnvironmentChanged);
+                });
+                if published.is_err() {
+                    return; // the app is shutting down
+                }
+                if status == ScanStatus::Cancelled {
+                    return;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// User-visible Refresh: cancels the in-flight scan and starts a new one.
+    pub fn refresh_environment(&mut self, cx: &mut Context<Self>) {
+        self.start_discovery(cx);
+    }
+
+    /// Filesystem watcher fired (debounced): re-scan, keeping the UI
+    /// responsive. Demo fixtures are never replaced by live data.
+    pub fn on_environment_changed_on_disk(&mut self, cx: &mut Context<Self>) {
+        if self.environment.demo_locked {
+            return;
+        }
+        licoman_core::log::info(
+            "ui::environment",
+            "application directories changed; refreshing discovery",
+            &[],
+        );
+        self.start_discovery(cx);
+    }
+
+    /// Install the debounced application-directory watcher (once).
+    pub fn ensure_environment_watcher(&mut self, cx: &mut Context<Self>) {
+        if self.environment.demo_locked {
+            return;
+        }
+        let dirs: Vec<std::path::PathBuf> = DiscoverySources::from_environment()
+            .app_dirs
+            .into_iter()
+            .map(|dir| dir.path)
+            .collect();
+        if let Some(watcher) = crate::environment_watch::start(cx.weak_entity(), dirs, cx) {
+            self.environment_watcher = Some(watcher);
+        }
+    }
+
+    /// Replace discovery with a deterministic demo fixture (visual
+    /// verification of environments this machine cannot run).
+    pub fn load_demo_environment(&mut self, name: &str, cx: &mut Context<Self>) -> bool {
+        let Some(snapshot) = licoman_core::discovery::demo_fixtures::demo_snapshot(name) else {
+            return false;
+        };
+        self.environment.demo_locked = true;
+        self.environment.snapshot = Some(Arc::new(snapshot));
+        let snapshot = self.environment.snapshot.as_ref().unwrap();
+        self.environment.app_list =
+            build_app_list(&snapshot.installed_apps, &snapshot.available_backends);
+        self.environment.scan = ScanState::Ready;
+        cx.emit(AppEvent::EnvironmentChanged);
+        true
     }
 
     /// Forward a typed command to the core store and emit the matching

@@ -150,3 +150,93 @@ show the provider note explaining why.
 **Why:** fail-closed (00_START_HERE.md non-negotiable 4): displaying a value
 Licoman cannot read would be pretending. Visual delta from Phase 01 is
 intentional and limited to truly unreadable rows.
+
+---
+
+# Architecture Decision Records — Phase 03
+
+Continues the numbering above (D1–D13 in `docs/design/decisions.md`,
+D14–D24 in Phase 02). These records cover
+`03_ENVIRONMENT_DISCOVERY.md`.
+
+## D25 — Discovery probes are hand-rolled; `licoman-core` stays dependency-free
+
+**Decision:** the D-Bus probe (SASL EXTERNAL + `Hello` + `ListNames`) and the
+GVDB reader for `gschemas.compiled` are implemented in
+`crates/core/src/discovery/` with **zero new dependencies** in the core
+crate. The `gsettings` CLI and any client library (zbus et al.) are
+deliberately not used: `gsettings` can auto-activate `dconf-service`, and the
+plan forbids launching daemons solely to enable a module; a client library
+would pull a large async tree into the UI-independent core. Both hand-rolled
+pieces are exact-byte/real-file tested and degrade gracefully
+(unavailable + problem entry) on any failure.
+
+**Why:** continues D22's direction (hand-rolled small surface over big
+dependency trees); the probe surface is two no-argument D-Bus calls and a
+read-only GVDB walk — small enough to own, and every byte is explainable.
+
+## D26 — Filesystem watching lives in the UI adapter; `notify` is the one new dependency of Phase 03
+
+**Decision:** the plan requires filesystem notifications with debouncing for
+cache invalidation. The `notify` crate (inotify on Linux) is added to
+`licoman-ui` only — the adapter already owns all timing (D18) — and
+`licoman-core` gains nothing. The watcher is three dumb pieces: notify's
+thread → a 500 ms debounce thread → a background-executor task that
+refreshes discovery on the main thread. The blocking receive is
+event-driven (zero wakeups at idle) and the whole thing is skipped for demo
+fixtures.
+
+**Why:** std has no inotify; low-frequency polling is explicitly discouraged
+by the plan; keeping the dependency out of core preserves the Phase 02
+structural guarantee that the domain crate depends on nothing GUI- or
+OS-event-shaped.
+
+## D27 — The discovery cache belongs to the adapter, not the `Store`
+
+**Decision:** `EnvironmentSnapshot` is cached in `AppState`'s
+`EnvironmentState` (adapter), not in `licoman_core::Store`. `Store` keeps its
+D18 contract: synchronous, UI-timing-free, no environment I/O. The adapter
+publishes partial snapshots after every stage and re-derives the
+app/module merge (`build_app_list`) only on ingestion.
+
+**Why:** the snapshot is an observation of the environment, not settings
+state; mixing it into the store would entangle load/dispatch semantics with
+async discovery. The five support conditions (installed / module available /
+version compatible / backend available / writable) stay explicit fields, so
+the UI can show each honestly.
+
+## D28 — `Command::SelectApp` carries a stable id, not an index
+
+**Decision:** `SelectApp { index: Option<usize> }` becomes
+`SelectApp { id: Option<String> }` (desktop-file id or module id). The
+Applications list is now dynamic — it changes between scans as applications
+are installed/removed — so indices would silently point at the wrong row
+after a refresh. Selection survives refreshes by identity.
+
+**Why:** same lesson as the search index (Phase 02): identities are stable,
+indices are not.
+
+## D29 — Demo fixtures run through the real parsers
+
+**Decision:** `LICOMAN_DEMO` fixture names (`arch-hyprland`, `fedora-gnome`,
+`ubuntu-x11`, `debian-xfce`, `multi-xdg`, `unknown`) build
+`EnvironmentSnapshot`s by running the actual discovery parsers over embedded
+fixture data — never by hand-writing display strings. Demo mode locks out
+live discovery and the filesystem watcher.
+
+**Why:** demo screens must verify the rendering of actual parser output for
+environments this machine cannot run (different distros, X11, ambiguous
+sessions); hand-built snapshots would rot and prove nothing about the
+parsers.
+
+## D30 — Diagnostics are a CLI export, not a window
+
+**Decision:** `licoman --diagnostics` prints the redacted discovery export
+headless and exits 0 (no graphical session required). The export carries
+ids, counts, statuses, evidence and problems; `$HOME` paths are redacted to
+`~`; `Exec` lines, icon payloads, file contents and setting values are never
+included.
+
+**Why:** the plan asks for "a diagnostics view or export"; the export is
+testable, scriptable, and needs no extra window. UI integration can build on
+the same function later.

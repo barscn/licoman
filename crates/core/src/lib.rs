@@ -14,6 +14,8 @@
 //! - [`provider`]/[`registry`]: the provider abstraction (probe / read /
 //!   optional write / capabilities) and the registry that routes by stable
 //!   setting ID.
+//! - [`discovery`]: read-only environment, service and installed-application
+//!   discovery (Phase 03) — typed snapshots with evidence and confidence.
 //! - [`mock`]: a deterministic mock provider for visual and interaction
 //!   testing without any installed software.
 //! - [`prefs`]: Licoman-only preferences (the one thing Licoman may persist).
@@ -27,6 +29,7 @@
 
 pub mod command;
 pub mod descriptor;
+pub mod discovery;
 pub mod error;
 pub mod log;
 pub mod mock;

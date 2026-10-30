@@ -4,7 +4,7 @@
 
 Built with **Rust + GPUI + GPUI Kit**. No Electron, no browser UI, no embedded web view.
 
-> **Status: Phase 02 (production foundation) implemented.** The app runs on
+> **Status: Phase 03 (environment discovery) implemented.** The app runs on
 > a UI-independent core (`crates/core`, no GPUI) behind a GPUI adapter
 > (`crates/ui`), with a deterministic mock provider. No real configuration is
 > read or written yet — Licoman only ever writes its own preferences file.
@@ -41,11 +41,16 @@ Linux runtime requirements: a Wayland or X11 session with GPU (Vulkan) available
 
 `LICOMAN_DEMO` selects a deterministic screen for screenshots (full table in
 [00_START_HERE.md](00_START_HERE.md)): `palette`, `apps`, `prefs`, `light`,
-`light-apps`, `failed`, `distro`, `desktop`, `dirty`, `empty`. Example:
+`light-apps`, `failed`, `distro`, `desktop`, `dirty`, `empty`, plus
+discovery fixtures (`arch-hyprland`, `fedora-gnome`, `ubuntu-x11`,
+`debian-xfce`, `multi-xdg`, `unknown`). Example:
 
 ```sh
 LICOMAN_DEMO=apps cargo run -p licoman
 ```
+
+Headless environment diagnostics (read-only, redacted):
+`cargo run -p licoman -- --diagnostics`.
 
 ## Layout
 

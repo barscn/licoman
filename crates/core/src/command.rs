@@ -41,8 +41,11 @@ pub enum Command {
     SelectScope(Scope),
     SelectCategory(Option<String>),
     /// Applications-window navigation (independent of the main window).
+    /// The id is the stable application identity: the desktop-file id for
+    /// discovered apps (e.g. `Alacritty.desktop`) or the module id for
+    /// module-only rows — indexes shift, identities do not.
     SelectApp {
-        index: Option<usize>,
+        id: Option<String>,
     },
     SelectAppTab(usize),
     /// Licoman's own appearance preference — a safe immediate write to

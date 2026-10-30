@@ -1,0 +1,4 @@
+ID=arch
+NAME="Arch Linux"
+SOME_2038_FIELD=ignored-but-kept
+QUANTUM_SESSION=holographic

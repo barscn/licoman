@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Missing Binary
+Exec=missing-binary
+TryExec=licoman-fixture-no-such-binary-1234

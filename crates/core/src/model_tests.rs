@@ -421,15 +421,17 @@ fn window_selections_are_independent() {
     let mut registry = Registry::new();
     registry.register(Box::new(crate::mock::MockProvider::standard()));
     let mut store = store_from(registry);
-    store.dispatch(Command::SelectApp { index: Some(2) });
+    store.dispatch(Command::SelectApp {
+        id: Some("mpv".to_string()),
+    });
     store.dispatch(Command::SelectAppTab(1));
     store.dispatch(Command::SelectScope(Scope::Distribution));
-    assert_eq!(store.selected_app(), Some(2));
+    assert_eq!(store.selected_app(), Some("mpv"));
     assert_eq!(store.selected_app_tab(), 1);
     assert_eq!(store.selected_scope(), Scope::Distribution);
     // Theme changes and scope changes do not clobber apps-window selection.
     store.dispatch(Command::SelectScope(Scope::Shared));
-    assert_eq!(store.selected_app(), Some(2));
+    assert_eq!(store.selected_app(), Some("mpv"));
     assert_eq!(store.selected_app_tab(), 1);
 }
 

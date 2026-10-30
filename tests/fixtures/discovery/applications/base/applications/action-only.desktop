@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=No Main Group
+Exec=x
+[Desktop Action window]
+Name=Window
+Exec=x -w

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Kitty
+GenericName=Terminal
+Comment=The fast, feature-rich terminal
+Exec=kitty
+Icon=kitty
+Categories=System;TerminalEmulator;

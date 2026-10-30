@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Alacritty
+GenericName=Terminal
+Comment=A cross-platform, GPU-accelerated terminal emulator
+Exec=alacritty
+Icon=Alacritty
+StartupWMClass=Alacritty
+Categories=System;TerminalEmulator;

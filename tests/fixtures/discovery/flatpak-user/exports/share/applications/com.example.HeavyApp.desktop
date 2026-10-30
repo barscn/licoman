@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Heavy App
+Comment=An application Licoman has no module for
+Exec=/app/bin/heavy-app
+Icon=com.example.HeavyApp
+X-Flatpak=com.example.HeavyApp
+X-Flatpak-Runtime=com.example.Platform/x86_64/stable
