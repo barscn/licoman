@@ -1,6 +1,8 @@
 //! Licoman product preferences — the only configuration Licoman is allowed to
-//! write (Phase 01). Stored at `$XDG_CONFIG_HOME/licoman/preferences.toml`
-//! (fallback `$HOME/.config/licoman/preferences.toml`).
+//! write. Stored at `$XDG_CONFIG_HOME/licoman/preferences.toml` (fallback
+//! `$HOME/.config/licoman/preferences.toml`). This module is deliberately
+//! separate from the registry and provider settings: it models Licoman's own
+//! configuration, not the user's desktop (02_FOUNDATION.md §3).
 //!
 //! Contract (01_DESIGN_SYSTEM.md §2):
 //! - Absent or invalid file means **Dark**. A corrupt file must not prevent

@@ -19,10 +19,12 @@ use gpui_kit::{
 use gpui_kit::{
     Focusable as _, InteractiveElement as _, IntoElement as _, StatefulInteractiveElement as _,
 };
+use licoman_core::mock::{APPS_CATALOG, Support};
+use licoman_core::prefs::AppearanceMode;
+use licoman_core::{Command, WindowRole};
 
 use crate::actions::*;
-use crate::app_state::{AppEvent, AppState, WindowRegistry};
-use crate::mock::{MOCK_APPS, Support};
+use crate::app_state::{AppEvent, AppState, open_or_focus};
 use crate::theme::metrics;
 use crate::ui::{OptionIntoAny as _, settings_group, support_tag};
 
@@ -90,7 +92,7 @@ impl AppsWindow {
         let appearance_app = app.clone();
         let appearance_sub = window.observe_window_appearance(move |_window, cx| {
             appearance_app.update(cx, |state, cx| {
-                if state.preferences.theme == crate::prefs::AppearanceMode::System {
+                if state.store.preferences().theme == AppearanceMode::System {
                     state.resolve_and_apply_theme(cx);
                 }
             });
@@ -110,7 +112,7 @@ impl AppsWindow {
 
     fn filtered_apps(&self, cx: &Context<Self>) -> Vec<usize> {
         let query = self.filter.read(cx).value().to_lowercase();
-        MOCK_APPS
+        APPS_CATALOG
             .iter()
             .enumerate()
             .filter(|(_, app)| query.is_empty() || app.name.to_lowercase().contains(&query))
@@ -120,13 +122,14 @@ impl AppsWindow {
 
     fn render_list(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let theme = cx.theme().clone();
-        let selected = self.app.read(cx).selected_app;
+        let selected = self.app.read(cx).store.selected_app();
         let items: Vec<gpui_kit::AnyElement> = self
             .filtered_apps(cx)
             .into_iter()
             .map(|index| {
-                let app = &MOCK_APPS[index];
+                let app = &APPS_CATALOG[index];
                 let is_selected = selected == Some(index);
+                let app_id = app.id;
                 div()
                     .id(SharedString::from(format!("app-{index}")))
                     .px_3()
@@ -136,8 +139,13 @@ impl AppsWindow {
                     .hover(|row| row.bg(theme.accent))
                     .on_click(
                         cx.listener(move |this, _: &gpui_kit::ClickEvent, _window, cx| {
-                            this.app.update(cx, |state, _cx| {
-                                state.selected_app = Some(index);
+                            this.app.update(cx, |state, cx| {
+                                state.dispatch(Command::SelectApp { index: Some(index) }, cx);
+                                state.push_history(
+                                    WindowRole::Applications,
+                                    format!("app:{app_id}"),
+                                    cx,
+                                );
                             });
                             this.selected_tab = 0;
                             cx.notify();
@@ -214,8 +222,8 @@ impl AppsWindow {
 
     fn render_detail(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let theme = cx.theme().clone();
-        let selected = self.app.read(cx).selected_app;
-        let Some(index) = selected.filter(|i| *i < MOCK_APPS.len()) else {
+        let selected = self.app.read(cx).store.selected_app();
+        let Some(index) = selected.filter(|i| *i < APPS_CATALOG.len()) else {
             return v_flex()
                 .flex_1()
                 .items_center()
@@ -227,7 +235,7 @@ impl AppsWindow {
                 )
                 .into_any_element();
         };
-        let app = &MOCK_APPS[index];
+        let app = &APPS_CATALOG[index];
         let tabs = app.categories;
         if self.selected_tab >= tabs.len() {
             self.selected_tab = 0;
@@ -505,18 +513,15 @@ impl Render for AppsWindow {
                 window.focus(&handle, cx);
             }))
             .on_action(cx.listener(|this, _: &OpenPreferences, _window, cx| {
-                let existing = cx.global::<WindowRegistry>().preferences_window;
-                if crate::app_state::focus_window(&existing, cx) {
-                    return;
-                }
                 let app = this.app.clone();
-                let handle = crate::windows::open_preferences_window(&app, cx);
-                cx.global_mut::<WindowRegistry>().preferences_window = Some(handle);
+                open_or_focus(
+                    WindowRole::Preferences,
+                    move |cx| crate::windows::open_preferences_window(&app, cx),
+                    cx,
+                );
             }))
-            .on_action(cx.listener(|this, _: &OpenApplications, _window, cx| {
-                let existing = cx.global::<WindowRegistry>().apps_window;
-                let _ = crate::app_state::focus_window(&existing, cx);
-                let _ = this;
+            .on_action(cx.listener(|_this, _: &OpenApplications, _window, _cx| {
+                // Already in the Applications window; nothing to open.
             }))
             .child(
                 TitleBar::new().h(px(metrics::HEADER_HEIGHT)).child(

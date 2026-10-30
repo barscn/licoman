@@ -12,9 +12,9 @@ use gpui_kit::{
     Context, Entity, FontWeight, InteractiveElement as _, ParentElement as _, Render, SharedString,
     Styled, Window, div, px,
 };
+use licoman_core::prefs::AppearanceMode;
 
 use crate::app_state::{AppEvent, AppState};
-use crate::prefs::AppearanceMode;
 use crate::theme::metrics;
 
 pub struct PreferencesWindow {
@@ -28,7 +28,7 @@ impl PreferencesWindow {
         let appearance_app = app.clone();
         let appearance_sub = window.observe_window_appearance(move |_window, cx| {
             appearance_app.update(cx, |state, cx| {
-                if state.preferences.theme == AppearanceMode::System {
+                if state.store.preferences().theme == AppearanceMode::System {
                     state.resolve_and_apply_theme(cx);
                 }
             });
@@ -56,8 +56,8 @@ impl Render for PreferencesWindow {
         cx: &mut Context<Self>,
     ) -> impl gpui_kit::IntoElement {
         let theme = cx.theme().clone();
-        let prefs = self.app.read(cx).preferences.clone();
-        let diagnostics = self.app.read(cx).preference_diagnostics.clone();
+        let prefs = self.app.read(cx).store.preferences().clone();
+        let diagnostics = self.app.read(cx).store.preference_diagnostics().to_vec();
         let selected = AppearanceMode::ALL
             .iter()
             .position(|m| *m == prefs.theme)
@@ -133,7 +133,7 @@ impl Render for PreferencesWindow {
                                             .copied()
                                             .unwrap_or(AppearanceMode::Dark);
                                         this.app.update(cx, |state, cx| {
-                                            state.set_theme_mode(mode, cx);
+                                            state.change_theme(mode, cx);
                                         });
                                     }))
                                     .children(AppearanceMode::ALL.map(|mode| {

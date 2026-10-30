@@ -1,0 +1,19 @@
+[package]
+name = "licoman-ui"
+description = "GPUI presentation layer for Licoman: Quiet Control themes, native windows, view adapter over licoman-core."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "licoman_ui"
+path = "src/lib.rs"
+
+[dependencies]
+licoman-core = { workspace = true }
+gpui-kit = { workspace = true }
+# Pinned to keep the ashpd feature set unified with gpui-base exactly:
+# `async-io` + `settings`, nothing else. Any mismatch fails the build with a
+# compile_error! from ashpd itself. Licoman does not call ashpd directly.
+ashpd = { workspace = true }

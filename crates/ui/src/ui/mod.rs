@@ -16,8 +16,8 @@ use gpui_kit::{
     Stateful, Styled, div, px,
 };
 
-use crate::mock::Support;
 use crate::theme::metrics;
+use licoman_core::mock::Support;
 
 /// Scope/window heading: 24 px, weight 600 (typography table).
 pub fn window_heading(text: impl Into<SharedString>, theme: &Theme) -> Div {

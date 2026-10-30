@@ -4,9 +4,13 @@
 
 Built with **Rust + GPUI + GPUI Kit**. No Electron, no browser UI, no embedded web view.
 
-> **Status: Phase 01 (design system on mock data) implemented.** No real
-> configuration is read or written yet. See
-> [docs/handoffs/PHASE_01_REPORT.md](docs/handoffs/PHASE_01_REPORT.md).
+> **Status: Phase 02 (production foundation) implemented.** The app runs on
+> a UI-independent core (`crates/core`, no GPUI) behind a GPUI adapter
+> (`crates/ui`), with a deterministic mock provider. No real configuration is
+> read or written yet — Licoman only ever writes its own preferences file.
+> See [docs/handoffs/PHASE_02_REPORT.md](docs/handoffs/PHASE_02_REPORT.md),
+> [docs/handoffs/PHASE_01_REPORT.md](docs/handoffs/PHASE_01_REPORT.md) and
+> [docs/architecture/README.md](docs/architecture/README.md).
 
 ## Principles (non-negotiable)
 
@@ -25,19 +29,19 @@ Built with **Rust + GPUI + GPUI Kit**. No Electron, no browser UI, no embedded w
 
 ```sh
 cargo fmt --all -- --check     # formatting gate
-cargo test --workspace         # unit tests (preferences, theme mapping, metrics)
+cargo test --workspace         # unit tests (domain, preferences, theme, CLI)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo build --workspace --release
 cargo run -p licoman           # run the app (Wayland or X11 session)
 ```
 
-Linux runtime requirements: a Wayland or X11 session with GPU (Vulkan) available, fontconfig fonts. Development on Arch tested with Hyprland (Wayland).
+Linux runtime requirements: a Wayland or X11 session with GPU (Vulkan) available, fontconfig fonts. Development on Arch tested with Hyprland (Wayland). Without a graphical session the binary exits with a readable diagnostic; `licoman-core` tests run headless.
 
 ### Visual verification harness
 
-`LICOMAN_DEMO` selects a deterministic screen for screenshots (documented in
-the phase report): `palette`, `apps`, `prefs`, `light`, `light-apps`,
-`failed`, `distro`. Example:
+`LICOMAN_DEMO` selects a deterministic screen for screenshots (full table in
+[00_START_HERE.md](00_START_HERE.md)): `palette`, `apps`, `prefs`, `light`,
+`light-apps`, `failed`, `distro`, `desktop`, `dirty`, `empty`. Example:
 
 ```sh
 LICOMAN_DEMO=apps cargo run -p licoman
@@ -46,15 +50,20 @@ LICOMAN_DEMO=apps cargo run -p licoman
 ## Layout
 
 ```text
-apps/licoman/        # executable, GPUI bootstrap (Phase 01 shell)
+apps/licoman/        # executable: CLI, logging init, GPUI bootstrap
+crates/core/         # licoman-core: UI-independent domain (no GPUI)
+crates/ui/           # licoman-ui: Quiet Control themes, windows, views
+docs/architecture/   # crate boundaries + Phase 02+ decision records
 docs/design/         # Quiet Control design system documents
 docs/handoffs/       # per-phase reports (PHASE_01_REPORT.md …)
 docs/screenshots/    # captured on a real Hyprland/Wayland session
 tests/fixtures/      # strictly isolated fixtures (used from Phase 03 on)
 tests/tools/         # dev verification harnesses (WIP Wayland key injector)
+.github/workflows/   # CI: headless core job + full gpui workspace job
 ```
 
-Planned crate boundaries (`crates/core`, `crates/registry`, `crates/backends`,
-`crates/safety`, …) arrive with the phases that need them; Phase 01 keeps a
-single focused crate. See the execution plan in
+Future boundaries (`crates/discovery`, `crates/backends`, `crates/safety`, …)
+arrive with the phases that need them; Phase 02 established the three-crate
+modular monolith described in
+[docs/architecture/README.md](docs/architecture/README.md). See the execution plan in
 `Licoman_Development_Phases/00_START_HERE.md` (author's document pack).

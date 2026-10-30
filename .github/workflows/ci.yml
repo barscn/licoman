@@ -1,0 +1,71 @@
+# Licoman CI.
+#
+# Headless unit tests (licoman-core, CLI) are separated from the full
+# GPUI workspace build, which needs graphics system libraries but no GPU for
+# compilation. Tests that require a human-run graphical session (screenshots,
+# keyboard walkthrough, live portal checks) are NOT in CI — they are
+# documented in docs/handoffs/ and docs/design/accessibility.md.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Pure-Rust domain crate + executable CLI: no system dependencies.
+  core:
+    name: core (headless)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy (core)
+        run: cargo clippy -p licoman-core --all-targets -- -D warnings
+      - name: Tests (core)
+        run: cargo test -p licoman-core
+
+  # Full workspace (GPUI adapter + binary). Compilation needs the same
+  # system libraries upstream gpui-kit documents for Linux builds
+  # (script/install-linux.sh in longbridge/gpui-kit).
+  workspace:
+    name: workspace (gpui)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install gpui Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc g++ clang \
+            libfontconfig-dev \
+            libwayland-dev \
+            libwebkit2gtk-4.1-dev \
+            libxkbcommon-x11-dev \
+            libx11-xcb-dev \
+            libssl-dev \
+            libzstd-dev \
+            libasound2-dev \
+            vulkan-validationlayers \
+            libvulkan1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy (workspace)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Tests (workspace)
+        run: cargo test --workspace
+      - name: Release build
+        run: cargo build --workspace --release
+      - name: CLI smoke (--version)
+        run: ./target/release/licoman --version

@@ -1,6 +1,8 @@
 //! Main window: scope sidebar, settings content, search palette, apply bar.
 //! Structure follows 01_DESIGN_SYSTEM.md §4A. All content is mock data and
 //! labeled as such; states that need real providers render truthfully.
+//! Rendering reads owned snapshots from the core store; every intent goes
+//! through `AppState::dispatch` with a typed command.
 
 use gpui_kit::component::IndexPath;
 use gpui_kit::component::TitleBar;
@@ -20,13 +22,44 @@ use gpui_kit::{
 use gpui_kit::{
     Focusable as _, InteractiveElement as _, IntoElement as _, StatefulInteractiveElement as _,
 };
+use licoman_core::descriptor::{ApplyMode, Control, Scope, SettingDescriptor};
+use licoman_core::error::ErrorKind;
+use licoman_core::mock::MOCK_ENVIRONMENT;
+use licoman_core::state::SettingPhase;
+use licoman_core::value::SettingValue;
+use licoman_core::{Command, SettingModel, WindowRole};
 
 use crate::actions::*;
-use crate::app_state::{AppEvent, AppState, WindowRegistry, focus_window};
-use crate::mock::{ControlKind, MockSetting, MockValue, RowStatus, Scope};
-use crate::prefs::AppearanceMode;
+use crate::app_state::{AppEvent, AppState, open_or_focus};
 use crate::theme::metrics;
 use crate::ui::{OptionIntoAny as _, read_only_value, setting_row, settings_group, window_heading};
+use licoman_core::prefs::AppearanceMode;
+
+/// Owned render snapshot for one setting row.
+#[derive(Clone)]
+struct Row {
+    descriptor: SettingDescriptor,
+    model: SettingModel,
+}
+
+impl Row {
+    fn editable(&self) -> bool {
+        self.descriptor.control != Control::ReadOnly
+            && self.descriptor.apply_mode == ApplyMode::Staged
+            && !self.model.phase.blocks_editing()
+    }
+
+    fn effective(&self) -> SettingValue {
+        self.model
+            .effective()
+            .cloned()
+            .unwrap_or(SettingValue::Text(String::new()))
+    }
+
+    fn display(&self) -> String {
+        self.effective().display()
+    }
+}
 
 pub struct MainWindow {
     app: Entity<AppState>,
@@ -37,8 +70,11 @@ pub struct MainWindow {
     volume_slider: Entity<SliderState>,
     dns_input: Entity<InputState>,
     downloads_input: Entity<InputState>,
-    dropdowns: Vec<(String, Entity<SelectState<SearchableVec<&'static str>>>)>,
+    dropdowns: Vec<(String, Entity<SelectState<SearchableVec<String>>>)>,
     select_resync_needed: bool,
+    /// Set when the header search submits; applied at the next render, where
+    /// window access is available.
+    pending_palette_query: Option<String>,
     _subscriptions: Vec<Subscription>,
     _appearance_sub: Option<Subscription>,
 }
@@ -50,7 +86,7 @@ impl MainWindow {
         let palette_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search all settings…"));
 
-        // One slider per slider-kind mock setting; Phase 01 has one.
+        // One slider per slider-kind mock setting; the mock catalog has one.
         let volume_slider = cx.new(|_| {
             SliderState::new()
                 .min(0.)
@@ -74,21 +110,26 @@ impl MainWindow {
         let mut dropdowns = Vec::new();
         let mut subscriptions = Vec::new();
 
-        let dropdown_specs: Vec<(String, Vec<&'static str>, usize)> = app
+        let dropdown_specs: Vec<(String, Vec<String>, usize)> = app
             .read(cx)
-            .settings
-            .iter()
-            .filter(|s| s.kind == ControlKind::Dropdown && !s.status.blocks_editing())
-            .map(|setting| {
-                let options: Vec<&'static str> = setting.options.to_vec();
-                let current = match &setting.value {
-                    MockValue::Option(o) => options
-                        .iter()
-                        .position(|opt| *opt == o.as_ref())
-                        .unwrap_or(0),
+            .store
+            .scope_rows(Scope::Shared)
+            .into_iter()
+            .chain(app.read(cx).store.scope_rows(Scope::Desktop))
+            .chain(app.read(cx).store.scope_rows(Scope::Distribution))
+            .filter(|(d, _)| matches!(d.control, Control::Choice { .. }))
+            .filter(|(_d, m)| !m.phase.blocks_editing())
+            .map(|(descriptor, model)| {
+                let Control::Choice { options } = descriptor.control.clone() else {
+                    unreachable!("filtered above");
+                };
+                let current = match model.effective() {
+                    Some(SettingValue::Choice(choice)) => {
+                        options.iter().position(|opt| opt == choice).unwrap_or(0)
+                    }
                     _ => 0,
                 };
-                (setting.id.to_string(), options, current)
+                (descriptor.id.to_string(), options, current)
             })
             .collect();
         for (id, options, current) in dropdown_specs {
@@ -103,16 +144,18 @@ impl MainWindow {
             dropdowns.push((id, state));
         }
 
-        // Slider edits flow into the shared state; the control itself never
-        // owns the committed value.
+        // Slider edits flow into the store as typed commands; the control
+        // itself never owns the committed value.
         let app_for_slider = app.clone();
         subscriptions.push(cx.subscribe(&volume_slider, {
             move |_this, _slider, event: &SliderEvent, cx| {
                 if let SliderEvent::Change(SliderValue::Single(v)) = event {
                     app_for_slider.update(cx, |state, cx| {
-                        state.edit(
-                            "shared.audio.output_volume",
-                            MockValue::Number(*v as f64),
+                        state.dispatch(
+                            Command::Edit {
+                                id: "shared.audio.output_volume".into(),
+                                value: SettingValue::Float(*v as f64),
+                            },
                             cx,
                         );
                     });
@@ -126,7 +169,13 @@ impl MainWindow {
                 if matches!(event, InputEvent::Change) {
                     let value = input.read(cx).value().to_string();
                     app_for_dns.update(cx, |state, cx| {
-                        state.edit("shared.network.dns", MockValue::Text(value.into()), cx);
+                        state.dispatch(
+                            Command::Edit {
+                                id: "shared.network.dns".into(),
+                                value: SettingValue::Text(value),
+                            },
+                            cx,
+                        );
                     });
                 }
             }
@@ -137,11 +186,13 @@ impl MainWindow {
             move |_this, input, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     let text = input.read(cx).value().to_string();
-                    if let Ok(n) = text.trim().parse::<f64>() {
+                    if let Ok(n) = text.trim().parse::<i64>() {
                         app_for_downloads.update(cx, |state, cx| {
-                            state.edit(
-                                "distro.packages.parallel_downloads",
-                                MockValue::Number(n),
+                            state.dispatch(
+                                Command::Edit {
+                                    id: "distro.packages.parallel_downloads".into(),
+                                    value: SettingValue::Integer(n),
+                                },
                                 cx,
                             );
                         });
@@ -150,22 +201,40 @@ impl MainWindow {
             }
         }));
 
-        // Select confirmations flow into the shared state.
+        // Select confirmations flow into the store.
         for (id, state) in &dropdowns {
             let id = id.clone();
             let app_for_select = app.clone();
             subscriptions.push(cx.subscribe(state, {
-                move |_this, _select, event: &SelectEvent<SearchableVec<&'static str>>, cx| {
+                move |_this, _select, event: &SelectEvent<SearchableVec<String>>, cx| {
                     if let SelectEvent::Confirm(Some(value)) = event {
-                        let value = (*value).to_string();
+                        let value = value.clone();
                         let id = id.clone();
                         app_for_select.update(cx, |state, cx| {
-                            state.edit(&id, MockValue::Option(value.into()), cx);
+                            state.dispatch(
+                                Command::Edit {
+                                    id,
+                                    value: SettingValue::Choice(value),
+                                },
+                                cx,
+                            );
                         });
                     }
                 }
             }));
         }
+
+        // The header search is the current-window entry into the global
+        // search: pressing Enter opens the global palette with the query.
+        // Window work happens in render (subscriptions have no window).
+        subscriptions.push(cx.subscribe(&header_search, {
+            move |this, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.pending_palette_query = Some(input.read(cx).value().to_string());
+                    cx.notify();
+                }
+            }
+        }));
 
         // Track app events: resync owned controls when the store changes
         // (discard, apply) so controls never present a stale value.
@@ -193,7 +262,7 @@ impl MainWindow {
         let appearance_app = app.clone();
         let appearance_sub = window.observe_window_appearance(move |_window, cx| {
             appearance_app.update(cx, |state, cx| {
-                if state.preferences.theme == AppearanceMode::System {
+                if state.store.preferences().theme == AppearanceMode::System {
                     state.resolve_and_apply_theme(cx);
                 }
             });
@@ -210,6 +279,7 @@ impl MainWindow {
             downloads_input,
             dropdowns,
             select_resync_needed: false,
+            pending_palette_query: None,
             _subscriptions: subscriptions,
             _appearance_sub: Some(appearance_sub),
         };
@@ -224,14 +294,12 @@ impl MainWindow {
         self.select_resync_needed = false;
 
         for (id, select) in &self.dropdowns {
-            let current: Option<&'static str> = {
-                let app = self.app.read(cx);
-                app.setting(id).and_then(|s| match &s.value {
-                    MockValue::Option(o) => {
-                        s.options.iter().find(|opt| **opt == o.as_ref()).copied()
-                    }
+            let current: Option<String> = {
+                let store = &self.app.read(cx).store;
+                match store.effective_value(id) {
+                    Some(SettingValue::Choice(choice)) => Some(choice),
                     _ => None,
-                })
+                }
             };
             if let Some(current) = current {
                 select.update(cx, |state, cx| {
@@ -240,28 +308,26 @@ impl MainWindow {
             }
         }
 
-        let volume = self
-            .app
-            .read(cx)
-            .setting("shared.audio.output_volume")
-            .and_then(|s| match s.value {
-                MockValue::Number(n) => Some(n as f32),
+        let volume = {
+            let store = &self.app.read(cx).store;
+            match store.effective_value("shared.audio.output_volume") {
+                Some(SettingValue::Float(n)) => Some(n as f32),
                 _ => None,
-            });
+            }
+        };
         if let Some(v) = volume {
             self.volume_slider.update(cx, |s, cx| {
                 s.set_value(v, window, cx);
             });
         }
 
-        let downloads = self
-            .app
-            .read(cx)
-            .setting("distro.packages.parallel_downloads")
-            .and_then(|s| match s.value {
-                MockValue::Number(n) => Some(format!("{n}")),
+        let downloads = {
+            let store = &self.app.read(cx).store;
+            match store.effective_value("distro.packages.parallel_downloads") {
+                Some(SettingValue::Integer(n)) => Some(n.to_string()),
                 _ => None,
-            });
+            }
+        };
         if let Some(text) = downloads
             && self.downloads_input.read(cx).value() != text.as_str()
         {
@@ -270,14 +336,13 @@ impl MainWindow {
             });
         }
 
-        let dns = self
-            .app
-            .read(cx)
-            .setting("shared.network.dns")
-            .and_then(|s| match &s.value {
-                MockValue::Text(t) => Some(t.to_string()),
+        let dns = {
+            let store = &self.app.read(cx).store;
+            match store.effective_value("shared.network.dns") {
+                Some(SettingValue::Text(t)) => Some(t),
                 _ => None,
-            });
+            }
+        };
         if let Some(text) = dns
             && self.dns_input.read(cx).value() != text.as_str()
         {
@@ -310,20 +375,20 @@ impl MainWindow {
         cx.notify();
     }
 
-    fn palette_results(&self, cx: &Context<Self>) -> Vec<usize> {
+    fn palette_results(&self, cx: &Context<Self>) -> Vec<licoman_core::search::SearchHit> {
         let query = self.palette_input.read(cx).value().to_string();
-        self.app.read(cx).search(&query)
+        self.app.read(cx).store.search(&query)
     }
 
     fn accept_palette_result(&mut self, cx: &mut Context<Self>) {
         let results = self.palette_results(cx);
         let picked = results
             .get(self.palette_selected.min(results.len().saturating_sub(1)))
-            .copied();
-        if let Some(index) = picked {
-            let scope = self.app.read(cx).settings[index].scope;
-            self.app.update(cx, |state, _cx| {
-                state.selected_scope = scope;
+            .cloned();
+        if let Some(hit) = picked {
+            self.app.update(cx, |state, cx| {
+                state.dispatch(Command::SelectScope(hit.scope), cx);
+                state.push_history(WindowRole::Main, format!("scope:{}", hit.scope.label()), cx);
             });
         }
         self.palette_open = false;
@@ -335,18 +400,17 @@ impl MainWindow {
     fn render_setting(
         &mut self,
         index: usize,
-        setting: &MockSetting,
+        row: &Row,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme().clone();
-        let control = self.render_control(setting, window, cx);
-        let status = self.render_status(setting, cx);
-        let _ = window;
+        let control = self.render_control(row, window, cx);
+        let status = self.render_status(row, cx);
         setting_row(
             SharedString::from(format!("setting-row-{index}")),
-            setting.label,
-            setting.description,
+            row.descriptor.label,
+            row.descriptor.description,
             control,
             status,
             &theme,
@@ -356,28 +420,45 @@ impl MainWindow {
 
     fn render_control(
         &mut self,
-        setting: &MockSetting,
+        row: &Row,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme().clone();
-        let id = setting.id.to_string();
-        match setting.kind {
-            ControlKind::Switch => {
-                let checked = matches!(setting.value, MockValue::Bool(true));
-                Switch::new(setting.id.clone())
+        let id = row.descriptor.id.to_string();
+        let unavailable_display = match &row.model.error {
+            Some(error) if error.kind == ErrorKind::Permission => "Not available",
+            _ => "Unavailable",
+        };
+
+        // Unavailable rows (cannot be read here) never show a fake value.
+        if row.model.phase == SettingPhase::Unavailable {
+            return read_only_value(unavailable_display, &theme).into_any_element();
+        }
+
+        match &row.descriptor.control {
+            Control::Switch => {
+                let checked = row.effective() == SettingValue::Bool(true);
+                Switch::new(row.descriptor.id)
                     .checked(checked)
-                    .disabled(setting.status.blocks_editing())
+                    .disabled(!row.editable())
                     .on_click(cx.listener(move |this, checked: &bool, _window, cx| {
-                        let value = MockValue::Bool(*checked);
-                        this.app
-                            .update(cx, |state, cx| state.edit(&id.clone(), value, cx));
+                        let value = SettingValue::Bool(*checked);
+                        this.app.update(cx, |state, cx| {
+                            state.dispatch(
+                                Command::Edit {
+                                    id: id.clone(),
+                                    value,
+                                },
+                                cx,
+                            );
+                        });
                     }))
                     .into_any_element()
             }
-            ControlKind::Dropdown => {
-                if setting.status.blocks_editing() {
-                    return read_only_value(setting.value.as_text(), &theme).into_any_element();
+            Control::Choice { .. } => {
+                if !row.editable() {
+                    return read_only_value(row.display(), &theme).into_any_element();
                 }
                 let state = self
                     .dropdowns
@@ -386,20 +467,21 @@ impl MainWindow {
                     .map(|(_, state)| state.clone());
                 match state {
                     Some(state) => Select::new(&state)
-                        .id(setting.id.clone())
+                        .id(row.descriptor.id)
                         .menu_width(px(200.))
                         .into_any_element(),
-                    None => read_only_value(setting.value.as_text(), &theme).into_any_element(),
+                    None => read_only_value(row.display(), &theme).into_any_element(),
                 }
             }
-            ControlKind::Slider => {
-                if setting.status.blocks_editing() {
-                    return read_only_value(
-                        format!("{}{}", mock_number(setting), setting.unit),
-                        &theme,
-                    )
-                    .into_any_element();
+            Control::Slider { unit, .. } => {
+                if !row.editable() {
+                    return read_only_value(format!("{}{unit}", row.display()), &theme)
+                        .into_any_element();
                 }
+                let value = match row.effective() {
+                    SettingValue::Float(n) => n,
+                    _ => 0.,
+                };
                 h_flex()
                     .w_full()
                     .gap_2()
@@ -410,52 +492,127 @@ impl MainWindow {
                             .w(px(44.))
                             .text_size(px(metrics::TEXT_BODY))
                             .text_color(theme.foreground)
-                            .child(format!("{}{}", mock_number(setting), setting.unit)),
+                            .child(format!("{value}{unit}")),
                     )
                     .into_any_element()
             }
-            ControlKind::Number => {
-                if setting.status.blocks_editing() {
-                    return read_only_value(mock_number(setting).to_string(), &theme)
-                        .into_any_element();
-                }
-                NumberInput::new(&self.downloads_input)
-                    .w(px(120.))
-                    .into_any_element()
-            }
-            ControlKind::Text => {
-                if setting.status.blocks_editing() {
+            Control::Number { unit, .. } => {
+                if !row.editable() {
                     return read_only_value(
-                        if setting.value.as_text().is_empty() {
-                            "Not set".to_string()
+                        if unit.is_empty() {
+                            row.display()
                         } else {
-                            setting.value.as_text().to_string()
+                            format!("{} {unit}", row.display())
                         },
                         &theme,
                     )
                     .into_any_element();
                 }
+                NumberInput::new(&self.downloads_input)
+                    .w(px(120.))
+                    .into_any_element()
+            }
+            Control::Text { .. } => {
+                if !row.editable() {
+                    return read_only_value(row.display(), &theme).into_any_element();
+                }
                 Input::new(&self.dns_input)
-                    .id(setting.id.clone())
+                    .id(row.descriptor.id)
                     .w(px(220.))
                     .into_any_element()
             }
-            ControlKind::ReadOnly => {
-                read_only_value(setting.value.as_text(), &theme).into_any_element()
+            Control::Path | Control::List => {
+                // No mock fixture exercises path/list yet; render the typed
+                // value read-only until the file backends arrive (Phase 05).
+                read_only_value(row.display(), &theme).into_any_element()
             }
+            Control::ReadOnly => read_only_value(row.display(), &theme).into_any_element(),
         }
     }
 
-    fn render_status(
-        &mut self,
-        setting: &MockSetting,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
+    fn render_status(&mut self, row: &Row, cx: &mut Context<Self>) -> Option<AnyElement> {
         let theme = cx.theme().clone();
-        let id = setting.id.to_string();
-        match &setting.status {
-            RowStatus::Idle => None,
-            RowStatus::Dirty => Some(
+        let id = row.descriptor.id.to_string();
+        match &row.model.phase {
+            SettingPhase::Unknown => Some(
+                div()
+                    .text_color(theme.muted_foreground)
+                    .child("Not read yet"),
+            )
+            .into_any(),
+            SettingPhase::Unavailable => {
+                let error = row.model.error.as_ref()?;
+                if error.kind == ErrorKind::Permission {
+                    let authorize_id = SharedString::from(format!("authorize-{id}"));
+                    Some(
+                        v_flex()
+                            .gap_1()
+                            .child(
+                                h_flex()
+                                    .gap_1()
+                                    .items_center()
+                                    .text_color(theme.muted_foreground)
+                                    .child(
+                                        Icon::new(gpui_kit::assets::IconName::Lock).small(),
+                                    )
+                                    .child(error.user_message.clone()),
+                            )
+                            .child(
+                                h_flex().gap_2().child(
+                                    Button::new(authorize_id)
+                                        .label("Authorize…")
+                                        .outline()
+                                        .xsmall()
+                                        .on_click(cx.listener(
+                                            |_this, _: &ClickEvent, window, cx| {
+                                                window.open_alert_dialog(cx, |alert, _window, _cx| {
+                                                    alert
+                                                        .title(
+                                                            "Authorization is not available in this build",
+                                                        )
+                                                        .description(
+                                                            "Licoman runs unprivileged. Privileged edits are deferred until the safe write engine and its authorization flow are implemented and reviewed (Phases 06–07). No system configuration was modified.",
+                                                        )
+                                                });
+                                            },
+                                        )),
+                                ),
+                            ),
+                    )
+                    .into_any()
+                } else {
+                    Some(
+                        div()
+                            .text_color(theme.muted_foreground)
+                            .child(error.user_message.clone()),
+                    )
+                    .into_any()
+                }
+            }
+            SettingPhase::Idle => {
+                // Static provider notes (why a row is read-only) and known
+                // restart requirements are truthful status lines.
+                if let Some(note) = row.descriptor.note {
+                    return Some(div().text_color(theme.muted_foreground).child(note)).into_any();
+                }
+                if let Some(target) = row
+                    .descriptor
+                    .restart_target
+                    .or(model_restart_target(&row.model))
+                {
+                    return Some(
+                        h_flex()
+                            .gap_1()
+                            .items_center()
+                            .text_color(theme.warning)
+                            .child(Icon::new(IconName::TriangleAlert).small())
+                            .child(format!("Applies after restarting {target}")),
+                    )
+                    .into_any();
+                }
+                None
+            }
+            SettingPhase::Dirty => Some(
                 h_flex()
                     .gap_1()
                     .items_center()
@@ -464,7 +621,16 @@ impl MainWindow {
                     .child("Unsaved change"),
             )
             .into_any(),
-            RowStatus::Applying => Some(
+            SettingPhase::Validating => {
+                Some(div().text_color(theme.muted_foreground).child("Checking…")).into_any()
+            }
+            SettingPhase::Pending => Some(
+                div()
+                    .text_color(theme.muted_foreground)
+                    .child("Ready to apply"),
+            )
+            .into_any(),
+            SettingPhase::Applying => Some(
                 h_flex()
                     .gap_1()
                     .items_center()
@@ -472,16 +638,26 @@ impl MainWindow {
                     .child("Applying…"),
             )
             .into_any(),
-            RowStatus::Saved => Some(
+            SettingPhase::Applied => Some(
                 h_flex()
                     .gap_1()
                     .items_center()
                     .text_color(theme.success)
                     .child(Icon::new(IconName::CircleCheck).small())
-                    .child("Saved"),
+                    .child(if row.model.restart_required {
+                        format!(
+                            "Saved — applies after restarting {}",
+                            row.descriptor
+                                .restart_target
+                                .unwrap_or("the affected program")
+                        )
+                    } else {
+                        "Saved".to_string()
+                    }),
             )
             .into_any(),
-            RowStatus::Failed { reason } => {
+            SettingPhase::Failed => {
+                let error = row.model.error.as_ref()?;
                 let retry_id = SharedString::from(format!("retry-{id}"));
                 let revert_id = SharedString::from(format!("revert-{id}"));
                 let retry_setting_id = id.clone();
@@ -495,7 +671,7 @@ impl MainWindow {
                                 .items_center()
                                 .text_color(theme.danger)
                                 .child(Icon::new(IconName::CircleX).small())
-                                .child(format!("Failed — {reason}")),
+                                .child(format!("Failed — {}", error.user_message)),
                         )
                         .child(
                             h_flex()
@@ -509,7 +685,10 @@ impl MainWindow {
                                             move |this, _: &ClickEvent, _window, cx| {
                                                 let setting_id = retry_setting_id.clone();
                                                 this.app.update(cx, |state, cx| {
-                                                    state.retry_failed(&setting_id, cx)
+                                                    state.dispatch(
+                                                        Command::Retry { id: setting_id },
+                                                        cx,
+                                                    );
                                                 });
                                             },
                                         )),
@@ -523,7 +702,10 @@ impl MainWindow {
                                             move |this, _: &ClickEvent, _window, cx| {
                                                 let setting_id = revert_setting_id.clone();
                                                 this.app.update(cx, |state, cx| {
-                                                    state.revert_failed(&setting_id, cx)
+                                                    state.dispatch(
+                                                        Command::Revert { id: setting_id },
+                                                        cx,
+                                                    );
                                                 });
                                             },
                                         )),
@@ -532,10 +714,22 @@ impl MainWindow {
                 )
                 .into_any()
             }
-            RowStatus::ExternalChange => {
+            SettingPhase::ExternalConflict => {
                 let reload_id = SharedString::from(format!("reload-{id}"));
                 let compare_id = SharedString::from(format!("compare-{id}"));
                 let reload_setting_id = id.clone();
+                let stored = row
+                    .model
+                    .stored
+                    .as_ref()
+                    .map(|v| v.display())
+                    .unwrap_or_default();
+                let external = row
+                    .model
+                    .external
+                    .as_ref()
+                    .map(|v| v.display())
+                    .unwrap_or_default();
                 Some(
                     v_flex()
                         .gap_1()
@@ -559,9 +753,10 @@ impl MainWindow {
                                             move |this, _: &ClickEvent, _window, cx| {
                                                 let setting_id = reload_setting_id.clone();
                                                 this.app.update(cx, |state, cx| {
-                                                    state.acknowledge_external_change(
-                                                        &setting_id, cx,
-                                                    )
+                                                    state.dispatch(
+                                                        Command::Reload { id: setting_id },
+                                                        cx,
+                                                    );
                                                 });
                                             },
                                         )),
@@ -572,29 +767,31 @@ impl MainWindow {
                                         .ghost()
                                         .xsmall()
                                         .on_click(cx.listener(
-                                            |_this, _: &ClickEvent, window, cx| {
-                                                window.open_dialog(cx, |dialog, _window, cx| {
-                                                dialog
-                                                    .title("Compare changes")
-                                                    .keyboard(true)
-                                                    .child(
-                                                        v_flex()
-                                                            .gap_2()
-                                                            .child(div().child(
-                                                                "Licoman (sample): accent = #70D0A9",
-                                                            ))
-                                                            .child(div().child(
-                                                                "Desktop (current): accent = #8AB4FF",
-                                                            ))
-                                                            .child(
-                                                                div()
-                                                                    .text_color(cx.theme().muted_foreground)
-                                                                    .text_size(px(metrics::TEXT_META))
-                                                                    .child(
-                                                                        "Sample comparison; the desktop value remains authoritative until reloaded.",
-                                                                    ),
-                                                            ),
-                                                    )
+                                            move |_this, _: &ClickEvent, window, cx| {
+                                                let stored = stored.clone();
+                                                let external = external.clone();
+                                                window.open_dialog(cx, move |dialog, _window, cx| {
+                                                    dialog
+                                                        .title("Compare changes")
+                                                        .keyboard(true)
+                                                        .child(
+                                                            v_flex()
+                                                                .gap_2()
+                                                                .child(div().child(
+                                                                    format!("Licoman (stored): {stored}"),
+                                                                ))
+                                                                .child(div().child(
+                                                                    format!("Source (current): {external}"),
+                                                                ))
+                                                                .child(
+                                                                    div()
+                                                                        .text_color(cx.theme().muted_foreground)
+                                                                        .text_size(px(metrics::TEXT_META))
+                                                                        .child(
+                                                                            "The source stays authoritative until you reload.",
+                                                                        ),
+                                                                ),
+                                                        )
                                                 });
                                             },
                                         )),
@@ -603,51 +800,6 @@ impl MainWindow {
                 )
                 .into_any()
             }
-            RowStatus::PermissionNeeded { scope } => Some(
-                v_flex()
-                    .gap_1()
-                    .child(
-                        h_flex()
-                            .gap_1()
-                            .items_center()
-                            .text_color(theme.muted_foreground)
-                            .child(Icon::new(gpui_kit::assets::IconName::Lock).small())
-                            .child(format!("Requires permission — {scope}")),
-                    )
-                    .child(
-                        h_flex().gap_2().child(
-                            Button::new(SharedString::from(format!("authorize-{id}")))
-                                .label("Authorize…")
-                                .outline()
-                                .xsmall()
-                                .on_click(cx.listener(|_this, _: &ClickEvent, window, cx| {
-                                    window.open_alert_dialog(cx, |alert, _window, _cx| {
-                                        alert
-                                            .title("Authorization is not available in this build")
-                                            .description(
-                                                "Licoman runs unprivileged. Privileged edits are deferred until the safe write engine and its authorization flow are implemented and reviewed (Phases 06–07). No system configuration was modified.",
-                                            )
-                                    });
-                                })),
-                        ),
-                    ),
-            )
-            .into_any(),
-            RowStatus::RestartNeeded { target } => Some(
-                h_flex()
-                    .gap_1()
-                    .items_center()
-                    .text_color(theme.warning)
-                    .child(Icon::new(IconName::TriangleAlert).small())
-                    .child(format!("Applies after restarting {target}")),
-            )
-            .into_any(),
-            RowStatus::Unsupported { reason } => Some(
-                div()
-                    .text_color(theme.muted_foreground)
-                    .child(reason.clone()),
-            )
-            .into_any(),
         }
     }
 
@@ -655,7 +807,7 @@ impl MainWindow {
 
     fn render_sidebar(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
-        let selected = self.app.read(cx).selected_scope;
+        let selected = self.app.read(cx).store.selected_scope();
 
         let mut menu = SidebarMenu::new().children([
             scope_item(Scope::Shared, IconName::Globe, selected, cx),
@@ -683,7 +835,7 @@ impl MainWindow {
                     .text_color(theme.muted_foreground)
                     .child("Environment"),
             )
-            .children(self.app.read(cx).environment().iter().map(|(name, _kind)| {
+            .children(MOCK_ENVIRONMENT.iter().map(|(name, _kind)| {
                 div()
                     .text_size(px(metrics::TEXT_BODY))
                     .text_color(theme.foreground)
@@ -706,34 +858,31 @@ impl MainWindow {
 
     fn render_content(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
-        let scope = self.app.read(cx).selected_scope;
-        let settings: Vec<MockSetting> = self
+        let scope = self.app.read(cx).store.selected_scope();
+        let rows: Vec<Row> = self
             .app
             .read(cx)
-            .settings
-            .iter()
-            .filter(|s| s.scope == scope)
-            .cloned()
+            .store
+            .scope_rows(scope)
+            .into_iter()
+            .map(|(descriptor, model)| Row { descriptor, model })
             .collect();
 
-        let mut categories: Vec<&'static str> = Vec::new();
-        for setting in &settings {
-            if !categories.contains(&setting.category) {
-                categories.push(setting.category);
-            }
-        }
-
         let mut groups: Vec<AnyElement> = Vec::new();
-        for category in categories {
-            let mut rows: Vec<AnyElement> = Vec::new();
-            for (i, s) in settings.iter().enumerate() {
-                if s.category == category {
-                    rows.push(self.render_setting(i, s, window, cx));
-                }
+        for category in self.app.read(cx).store.categories(scope) {
+            let cat_rows: Vec<Row> = rows
+                .iter()
+                .filter(|row| row.descriptor.category == category)
+                .cloned()
+                .collect();
+            let mut rendered: Vec<AnyElement> = Vec::new();
+            for (index, row) in cat_rows.iter().enumerate() {
+                rendered.push(self.render_setting(index, row, window, cx));
             }
-            groups.push(settings_group(category, rows, &theme).into_any_element());
+            groups.push(settings_group(category, rendered, &theme).into_any_element());
         }
 
+        let empty_state = rows.is_empty();
         v_flex()
             .flex_1()
             .min_h_0()
@@ -753,21 +902,47 @@ impl MainWindow {
                             .text_color(theme.muted_foreground)
                             .child(scope.description()),
                     )
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(
-                                gpui_kit::component::tag::Tag::secondary()
-                                    .small()
-                                    .child("Mock data"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(metrics::TEXT_META))
-                                    .text_color(theme.muted_foreground)
-                                    .child("All values below are samples for design review."),
-                            ),
-                    )
+                    .when(!empty_state, |content| {
+                        content.child(
+                            h_flex()
+                                .gap_2()
+                                .child(
+                                    gpui_kit::component::tag::Tag::secondary()
+                                        .small()
+                                        .child("Mock data"),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(metrics::TEXT_META))
+                                        .text_color(theme.muted_foreground)
+                                        .child("All values below are samples for design review."),
+                                ),
+                        )
+                    })
+                    .when(empty_state, |content| {
+                        // No providers registered (or none for this scope):
+                        // a clear unavailable state, not a blank window.
+                        content.child(
+                            v_flex()
+                                .gap_2()
+                                .pt_6()
+                                .child(
+                                    div()
+                                        .text_size(px(metrics::TEXT_LABEL))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(theme.foreground)
+                                        .child("No settings available here"),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(metrics::TEXT_BODY))
+                                        .text_color(theme.muted_foreground)
+                                        .child(
+                                            "Licoman found no settings providers for this scope. Environments without supported providers stay usable and show this explanation instead of an empty pane.",
+                                        ),
+                                ),
+                        )
+                    })
                     .children(groups),
             )
             .into_any_element()
@@ -775,9 +950,11 @@ impl MainWindow {
 
     fn render_apply_bar(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let theme = cx.theme().clone();
-        let dirty = self.app.read(cx).dirty_count();
-        let applying = self.app.read(cx).applying;
-        if dirty == 0 && !applying {
+        let (pending, applying) = {
+            let store = &self.app.read(cx).store;
+            (store.pending_count(), store.applying())
+        };
+        if pending == 0 && !applying {
             return None;
         }
         Some(
@@ -806,8 +983,8 @@ impl MainWindow {
                                     "Applying changes…".to_string()
                                 } else {
                                     format!(
-                                        "{dirty} change{} pending",
-                                        if dirty == 1 { "" } else { "s" }
+                                        "{pending} change{} pending",
+                                        if pending == 1 { "" } else { "s" }
                                     )
                                 }),
                         ),
@@ -821,7 +998,9 @@ impl MainWindow {
                                 .ghost()
                                 .disabled(applying)
                                 .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                    this.app.update(cx, |state, cx| state.discard_all(cx));
+                                    this.app.update(cx, |state, cx| {
+                                        state.dispatch(Command::DiscardAll, cx);
+                                    });
                                 })),
                         )
                         .child(
@@ -831,7 +1010,9 @@ impl MainWindow {
                                 .loading(applying)
                                 .disabled(applying)
                                 .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                    this.app.update(cx, |state, cx| state.apply_pending(cx));
+                                    this.app.update(cx, |state, cx| {
+                                        state.dispatch(Command::ApplyAll, cx);
+                                    });
                                 })),
                         ),
                 ),
@@ -851,10 +1032,9 @@ impl MainWindow {
         let items: Vec<AnyElement> = results
             .iter()
             .enumerate()
-            .map(|(i, &index)| {
-                let setting = &self.app.read(cx).settings[index];
-                let label = setting.label.to_string();
-                let breadcrumb = crate::mock::breadcrumb(setting);
+            .map(|(i, hit)| {
+                let label = hit.label.clone();
+                let breadcrumb = hit.breadcrumb.clone();
                 let is_selected = i == selected;
                 div()
                     .id(SharedString::from(format!("palette-result-{i}")))
@@ -979,30 +1159,31 @@ impl MainWindow {
     }
 
     fn open_applications_window(&mut self, cx: &mut Context<Self>) {
-        let existing = cx.global::<WindowRegistry>().apps_window;
-        if focus_window(&existing, cx) {
-            return;
-        }
         let app = self.app.clone();
-        let handle = crate::windows::open_apps_window(&app, cx);
-        cx.global_mut::<WindowRegistry>().apps_window = Some(handle);
+        open_or_focus(
+            WindowRole::Applications,
+            move |cx| crate::windows::open_apps_window(&app, cx),
+            cx,
+        );
     }
 
     fn open_preferences_window(&mut self, cx: &mut Context<Self>) {
-        let existing = cx.global::<WindowRegistry>().preferences_window;
-        if focus_window(&existing, cx) {
-            return;
-        }
         let app = self.app.clone();
-        let handle = crate::windows::open_preferences_window(&app, cx);
-        cx.global_mut::<WindowRegistry>().preferences_window = Some(handle);
+        open_or_focus(
+            WindowRole::Preferences,
+            move |cx| crate::windows::open_preferences_window(&app, cx),
+            cx,
+        );
     }
 }
 
-fn mock_number(setting: &MockSetting) -> f64 {
-    match setting.value {
-        MockValue::Number(n) => n,
-        _ => 0.,
+fn model_restart_target(model: &SettingModel) -> Option<&'static str> {
+    if model.restart_required {
+        // The dynamic flag carries no target of its own in the mock; the
+        // descriptor target is rendered when present.
+        Some("the affected program")
+    } else {
+        None
     }
 }
 
@@ -1017,8 +1198,9 @@ fn scope_item(
         .icon(icon)
         .active(active)
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            this.app.update(cx, |state, _cx| {
-                state.selected_scope = scope;
+            this.app.update(cx, |state, cx| {
+                state.dispatch(Command::SelectScope(scope), cx);
+                state.push_history(WindowRole::Main, format!("scope:{}", scope.label()), cx);
             });
         }))
 }
@@ -1031,6 +1213,15 @@ impl Render for MainWindow {
     ) -> impl gpui_kit::IntoElement {
         if self.select_resync_needed {
             self.sync_owned_controls(window, cx);
+        }
+        if let Some(query) = self.pending_palette_query.take() {
+            self.palette_open = true;
+            self.palette_selected = 0;
+            let focus = self.palette_input.read(cx).focus_handle(cx).clone();
+            self.palette_input.update(cx, |state, cx| {
+                state.set_value(query, window, cx);
+            });
+            window.focus(&focus, cx);
         }
 
         let theme = cx.theme().clone();

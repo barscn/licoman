@@ -3363,10 +3363,26 @@ dependencies = [
 name = "licoman"
 version = "0.1.0"
 dependencies = [
- "ashpd",
  "gpui-kit",
+ "licoman-core",
+ "licoman-ui",
+]
+
+[[package]]
+name = "licoman-core"
+version = "0.1.0"
+dependencies = [
  "serde",
  "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "licoman-ui"
+version = "0.1.0"
+dependencies = [
+ "ashpd",
+ "gpui-kit",
+ "licoman-core",
 ]
 
 [[package]]
