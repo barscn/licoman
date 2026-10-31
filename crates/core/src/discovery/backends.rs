@@ -9,6 +9,7 @@
 //! "Presence of a binary is not permission to change packages" — package
 //! managers are reported as informational facts only.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use super::dbus;
@@ -16,6 +17,18 @@ use super::gsettings;
 use super::{
     Confidence, DetectionProblem, DiscoverySources, Evidence, EvidenceSource, ProblemKind,
 };
+
+/// Raw environment facts the module applicability evaluator keys on
+/// (04_MODULE_SCHEMA_AND_REGISTRY.md §4: applicability must be based on
+/// actual detected environment/provider facts). These were previously only
+/// counted; they are now retained with the snapshot.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BackendFacts {
+    /// Discovered GSettings schemas and their declared key names.
+    pub gsettings_schemas: BTreeMap<String, BTreeSet<String>>,
+    /// Well-known names visible on the session bus.
+    pub bus_names: BTreeSet<String>,
+}
 
 /// The kinds of backend facts Licoman can observe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,8 +88,13 @@ const ANTICIPATED_CONFIG_DIRS: &[(&str, &str)] = &[
 ];
 
 /// Run every probe. Isolated: each probe catches its own failures.
-pub fn probe_all(sources: &DiscoverySources) -> (Vec<BackendCapability>, Vec<DetectionProblem>) {
+/// Returns the capability list, the raw facts (schemas, bus names) and any
+/// problems encountered.
+pub fn probe_all(
+    sources: &DiscoverySources,
+) -> (Vec<BackendCapability>, BackendFacts, Vec<DetectionProblem>) {
     let mut backends = Vec::new();
+    let mut facts = BackendFacts::default();
     let mut problems = Vec::new();
 
     // ---- Package managers (informational PATH lookups) -------------------
@@ -115,6 +133,7 @@ pub fn probe_all(sources: &DiscoverySources) -> (Vec<BackendCapability>, Vec<Det
         sources.env.get("XDG_RUNTIME_DIR").map(String::as_str),
     );
     if bus.available {
+        facts.bus_names = bus.names.iter().cloned().collect();
         backends.push(BackendCapability {
             id: "dbus-session".to_string(),
             kind: BackendKind::Service,
@@ -160,7 +179,9 @@ pub fn probe_all(sources: &DiscoverySources) -> (Vec<BackendCapability>, Vec<Det
         SchemaProbe::Found {
             schemas,
             sources: hits,
+            map,
         } => {
+            facts.gsettings_schemas = map;
             backends.push(BackendCapability {
                 id: "gsettings-schemas".to_string(),
                 kind: BackendKind::SchemaDatabase,
@@ -247,7 +268,7 @@ pub fn probe_all(sources: &DiscoverySources) -> (Vec<BackendCapability>, Vec<Det
         }
     }
 
-    (backends, problems)
+    (backends, facts, problems)
 }
 
 fn lookup_binary(name: &str, path_dirs: &[PathBuf]) -> Option<PathBuf> {
@@ -261,6 +282,7 @@ enum SchemaProbe {
     Found {
         schemas: usize,
         sources: Vec<(usize, &'static str)>,
+        map: BTreeMap<String, BTreeSet<String>>,
     },
     NoneFound,
     Failed {
@@ -271,7 +293,7 @@ enum SchemaProbe {
 /// Enumerate every existing schema directory (deduplicated by schema id,
 /// first dir wins — mirroring how GSettings merges databases).
 fn probe_schemas(schema_dirs: &[PathBuf]) -> SchemaProbe {
-    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut seen: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut per_source = Vec::new();
     for (index, dir) in schema_dirs.iter().enumerate() {
         let compiled = dir.join("gschemas.compiled");
@@ -291,8 +313,9 @@ fn probe_schemas(schema_dirs: &[PathBuf]) -> SchemaProbe {
                 // First schema dir is the user XDG data dir (see the source
                 // ordering in DiscoverySources); the rest are system.
                 per_source.push((schemas.len(), if index == 0 { "user" } else { "system" }));
-                for (name, _) in schemas {
-                    seen.insert(name);
+                for (name, keys) in schemas {
+                    // First directory wins for a schema id.
+                    seen.entry(name).or_default().extend(keys);
                 }
             }
             Err(error) => {
@@ -308,6 +331,7 @@ fn probe_schemas(schema_dirs: &[PathBuf]) -> SchemaProbe {
     SchemaProbe::Found {
         schemas: seen.len(),
         sources: per_source,
+        map: seen,
     }
 }
 
@@ -322,7 +346,7 @@ mod tests {
             path_dirs: vec![PathBuf::from("/bin"), PathBuf::from("/usr/bin")],
             ..DiscoverySources::default()
         };
-        let (backends, problems) = probe_all(&sources);
+        let (backends, _facts, problems) = probe_all(&sources);
         assert!(
             problems.is_empty()
                 || problems
@@ -340,7 +364,7 @@ mod tests {
     #[test]
     fn probes_without_bus_or_schemas_fail_closed() {
         let sources = DiscoverySources::default();
-        let (backends, problems) = probe_all(&sources);
+        let (backends, _facts, problems) = probe_all(&sources);
         let bus = backends.iter().find(|b| b.id == "dbus-session").unwrap();
         assert!(!bus.is_available());
         let schemas = backends
@@ -362,7 +386,7 @@ mod tests {
             config_root: Some(std::env::temp_dir()),
             ..DiscoverySources::default()
         };
-        let (backends, _) = probe_all(&sources);
+        let (backends, _, _) = probe_all(&sources);
         let alacritty = backends
             .iter()
             .find(|b| b.id == "config:alacritty")

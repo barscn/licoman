@@ -240,3 +240,96 @@ included.
 **Why:** the plan asks for "a diagnostics view or export"; the export is
 testable, scriptable, and needs no extra window. UI integration can build on
 the same function later.
+
+## D31 — Built-in manifests are embedded at build time
+
+**Decision:** the built-in module manifests (`modules/builtin/*.toml`) are
+compiled into the binary via `include_str!` and listed in an explicit table
+(`crates/core/src/modules/builtin.rs`). There is no runtime module search
+root, so no file can override a built-in module and "source precedence"
+degenerates to a trivial, checkable rule: build-time content only. External
+data-only module loading is deferred until the separate security review the
+plan demands; the loader is generic over `(source, text)` pairs so the
+read-only linter and tests exercise the same code path without the app ever
+opening untrusted paths.
+
+**Why:** 04_MODULE_SCHEMA_AND_REGISTRY.md requires built-ins "trusted at
+build/release time" and forbids silent overrides by same-named files.
+Embedding is the strongest form of both, needs no trust checks at runtime,
+and keeps the hard boundary (no manifest may execute or write) structural.
+
+## D32 — Descriptors become runtime data
+
+**Decision:** `SettingDescriptor` text fields change from `&'static str` to
+owned `String` (and `Control` payloads likewise), gaining `keywords` (search)
+and `module_id` (provenance). `Scope` gains an `Application` variant that the
+main-window sidebar never offers (it renders only in the Applications
+window), and `Control` gains an inert `Action` variant.
+
+**Why:** descriptors now come from validated manifests, so static strings
+cannot work. The conversion keeps the Phase 02 store/command/rendering
+machinery unchanged — the module registry feeds the same interfaces rather
+than forking a second settings pipeline.
+
+## D33 — The module registry reaches the store through a `Provider`
+
+**Decision:** `modules::ModuleProvider` implements the existing `Provider`
+trait over a `Mutex<ModuleRegistry>` (`Arc`-cloned: one handle in
+`AppState`, one behind the `Provider` object). Applicability changes arrive
+via `set_environment(snapshot)`; the store reloads **only when the set of
+available settings changed**, preserving navigation and staged edits
+otherwise. Mock values are served only from declared defaults; non-mock
+backends fail closed on read ("not readable yet") and unconditionally on
+write.
+
+**Why:** the plan's lifecycle ends in "provide normalized data to GPUI
+adapter" without duplicating state. The provider bridge reuses the store's
+load/verify/dirty/apply semantics (and its tests), and the conditional
+reload honors "preserve App/Setting navigation when a module is refreshed".
+
+## D34 — Applicability reasons are distinct, preserved data
+
+**Decision:** every incompatibility dimension (desktop, distro,
+application/version, backend capability, per-setting predicate, missing
+schema/key/service) produces its own `IncompatibilityReason` with a
+user-safe message; a pending environment is its own state, never a guess.
+A declared app-version requirement is conservatively inapplicable while
+versions cannot be detected.
+
+**Why:** the plan's test matrix distinguishes schema-version, app-version,
+DE, service, permission and missing-binary failures; collapsing them into
+one boolean would make the UI lie by omission.
+
+## D35 — The JSON Schema is generated from the canonical types
+
+**Decision:** the definition types derive `schemars::JsonSchema`; 
+`licoman module schema` prints the schema. `schemars` (pure Rust, no I/O) is
+the only new core dependency of this phase.
+
+**Why:** 04 §5 requires a machine-validatable contract "generated from
+canonical Rust types" — hand-maintained copies would drift.
+
+## D36 — Mock value binding rules
+
+**Decision:** `mock`-backed settings must declare a default (validation
+error otherwise) — the mock source never invents values — except
+`string`/`path` settings, where an empty value is the explicit "not set".
+Nullable is restricted to string/path. Writes are refused for `read_only`
+policy, for `required_auth` settings, and unconditionally for non-mock
+backends. One deterministic fixture id (`shared.network.dns`) fails mock
+writes to keep the failure flow demonstrable.
+
+**Why:** "Represent absence correctly" and "not silently assigned defaults"
+(04 §3) become validation rules instead of runtime conventions.
+
+## D37 — Settings-group metadata drives the Applications-window tabs
+
+**Decision:** `group` lives on the *setting* (falling back to module
+`group`, then `category`), while the plan's module-level `category` groups
+rows in the main-window scope pages. `order` exists on both module and
+setting and is stamped explicitly by the catalog so display order equals
+declaration order.
+
+**Why:** the plan requires "registry app definitions provide its list,
+category tabs and detail panels"; per-setting groups are the smallest
+honest way to derive tabs, and explicit orders keep grouping deterministic.

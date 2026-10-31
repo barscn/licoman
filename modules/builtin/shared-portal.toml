@@ -1,0 +1,128 @@
+schema_version = 1
+id = "shared.portal"
+scope = "shared"
+title = "Desktop Portal"
+description = "Read-only facts exposed by the xdg-desktop-portal Settings interface. The service is checked against the session bus; property reads arrive with Phase 05."
+category = "Portal"
+order = 60
+docs_url = "https://flatpak.github.io/xdg-desktop-portal/"
+
+[compatibility]
+required_backends = ["dbus"]
+
+[support]
+maintainer = "Licoman maintainers"
+level = "read_only"
+
+[[settings]]
+id = "color_scheme"
+title = "Color scheme"
+description = "The desktop-wide light/dark preference."
+keywords = ["dark", "light", "theme"]
+type = "string"
+control = "read_only"
+policy = "read_only"
+group = "Appearance"
+order = 1
+[settings.backend]
+kind = "dbus"
+service = "org.freedesktop.portal.Desktop"
+path = "/org/freedesktop/portal/desktop"
+interface = "org.freedesktop.portal.Settings"
+property = "color-scheme"
+
+[[settings]]
+id = "accent_color"
+title = "Accent color"
+description = "The desktop accent color preference."
+type = "string"
+control = "read_only"
+policy = "read_only"
+group = "Appearance"
+order = 2
+[settings.backend]
+kind = "dbus"
+service = "org.freedesktop.portal.Desktop"
+path = "/org/freedesktop/portal/desktop"
+interface = "org.freedesktop.portal.Settings"
+property = "accent-color"
+
+[[settings]]
+id = "contrast"
+title = "Contrast"
+description = "The desktop contrast preference."
+type = "string"
+control = "read_only"
+policy = "read_only"
+group = "Appearance"
+order = 3
+[settings.backend]
+kind = "dbus"
+service = "org.freedesktop.portal.Desktop"
+path = "/org/freedesktop/portal/desktop"
+interface = "org.freedesktop.portal.Settings"
+property = "contrast"
+
+[[settings]]
+id = "animations"
+title = "Animations"
+description = "Whether the desktop enables animations."
+type = "string"
+control = "read_only"
+policy = "read_only"
+group = "Appearance"
+order = 4
+[settings.backend]
+kind = "dbus"
+service = "org.freedesktop.portal.Desktop"
+path = "/org/freedesktop/portal/desktop"
+interface = "org.freedesktop.portal.Settings"
+property = "enable-animations"
+
+[[settings]]
+id = "cursor_size"
+title = "Cursor size"
+description = "The desktop cursor size preference."
+type = "string"
+control = "read_only"
+policy = "read_only"
+group = "Appearance"
+order = 5
+[settings.backend]
+kind = "dbus"
+service = "org.freedesktop.portal.Desktop"
+path = "/org/freedesktop/portal/desktop"
+interface = "org.freedesktop.portal.Settings"
+property = "cursor-size"
+
+[[settings]]
+id = "text_scaling"
+title = "Text scaling"
+description = "The desktop text scaling preference."
+type = "string"
+control = "read_only"
+policy = "read_only"
+group = "Appearance"
+order = 6
+[settings.backend]
+kind = "dbus"
+service = "org.freedesktop.portal.Desktop"
+path = "/org/freedesktop/portal/desktop"
+interface = "org.freedesktop.portal.Settings"
+property = "text-scaling"
+
+[[settings]]
+id = "pointer_visibility"
+title = "Pointer visibility"
+description = "The desktop pointer visibility preference."
+type = "string"
+control = "read_only"
+policy = "read_only"
+group = "Appearance"
+order = 7
+[settings.backend]
+kind = "dbus"
+service = "org.freedesktop.portal.Desktop"
+path = "/org/freedesktop/portal/desktop"
+interface = "org.freedesktop.portal.Settings"
+property = "pointer-visibility"

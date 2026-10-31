@@ -1,0 +1,404 @@
+schema_version = 1
+id = "desktop.hyprland"
+scope = "desktop"
+title = "Hyprland"
+description = "Sample Hyprland compositor settings. Values are mock; the config binding is recorded for Phase 05."
+category = "Hyprland"
+order = 20
+docs_url = "https://wiki.hyprland.org/Configuring/"
+
+[compatibility]
+desktops = ["Hyprland"]
+required_backends = ["config:hypr"]
+
+[support]
+maintainer = "Licoman maintainers"
+tested = ["Hyprland 0.5x"]
+level = "partial"
+
+[[settings]]
+id = "gaps_in"
+title = "Inner gaps"
+description = "Space between tiled windows."
+keywords = ["gaps"]
+type = "integer"
+control = "slider"
+default = 8
+min = 0
+max = 40
+unit = "px"
+group = "General"
+order = 1
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "general:gaps_in"
+
+[[settings]]
+id = "gaps_out"
+title = "Outer gaps"
+description = "Space around the window layout."
+type = "integer"
+control = "slider"
+default = 12
+min = 0
+max = 60
+unit = "px"
+group = "General"
+order = 2
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "general:gaps_out"
+
+[[settings]]
+id = "border_size"
+title = "Border size"
+description = "Window border thickness."
+type = "integer"
+control = "slider"
+default = 2
+min = 0
+max = 20
+unit = "px"
+group = "General"
+order = 3
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "general:border_size"
+
+[[settings]]
+id = "rounding"
+title = "Corner rounding"
+description = "Window corner rounding radius."
+type = "integer"
+control = "slider"
+default = 10
+min = 0
+max = 30
+unit = "px"
+group = "General"
+order = 4
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "decoration:rounding"
+
+[[settings]]
+id = "layout"
+title = "Tiling layout"
+description = "The master/stacking layout algorithm."
+type = "enum"
+control = "dropdown"
+default = "dwindle"
+group = "General"
+order = 5
+[[settings.options]]
+value = "dwindle"
+[[settings.options]]
+value = "master"
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "general:layout"
+
+[[settings]]
+id = "active_opacity"
+title = "Active opacity"
+description = "Opacity of the focused window."
+type = "float"
+control = "slider"
+default = 1
+min = 0.5
+max = 1
+step = 0.05
+group = "General"
+order = 6
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "decoration:active_opacity"
+
+[[settings]]
+id = "inactive_opacity"
+title = "Inactive opacity"
+description = "Opacity of unfocused windows."
+type = "float"
+control = "slider"
+default = 0.9
+min = 0.3
+max = 1
+step = 0.05
+group = "General"
+order = 7
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "decoration:inactive_opacity"
+
+[[settings]]
+id = "animations_enabled"
+title = "Enable animations"
+description = "Compositor window animations."
+type = "boolean"
+control = "switch"
+restart = "the compositor session"
+default = true
+group = "Animations"
+order = 8
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "animations:enabled"
+
+[[settings]]
+id = "animation_speed"
+title = "Animation speed"
+description = "Duration multiplier for animations."
+type = "float"
+control = "slider"
+default = 3
+min = 0.5
+max = 10
+step = 0.5
+group = "Animations"
+order = 9
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "animations:speed"
+
+[[settings]]
+id = "animation_curve"
+title = "Animation curve"
+description = "Easing curve for animations."
+type = "enum"
+control = "dropdown"
+default = "default"
+group = "Animations"
+order = 10
+[[settings.options]]
+value = "default"
+[[settings.options]]
+value = "linear"
+[[settings.options]]
+value = "decel"
+[[settings.options]]
+value = "accel"
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "animations:curve"
+
+[[settings]]
+id = "fade_enabled"
+title = "Fade animations"
+description = "Fade windows in and out."
+type = "boolean"
+control = "switch"
+default = true
+group = "Animations"
+order = 11
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "animations:fade_enabled"
+
+[[settings]]
+id = "blur_enabled"
+title = "Enable blur"
+description = "Blur surfaces behind windows."
+keywords = ["transparency"]
+type = "boolean"
+control = "switch"
+default = true
+group = "Decoration"
+order = 12
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "decoration:blur:enabled"
+
+[[settings]]
+id = "blur_size"
+title = "Blur size"
+description = "Blur radius in pixels."
+type = "integer"
+control = "slider"
+default = 6
+min = 1
+max = 20
+unit = "px"
+group = "Decoration"
+order = 13
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "decoration:blur:size"
+
+[[settings]]
+id = "blur_passes"
+title = "Blur passes"
+description = "How many blur passes are applied."
+type = "integer"
+control = "slider"
+default = 2
+min = 1
+max = 10
+group = "Decoration"
+order = 14
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "decoration:blur:passes"
+
+[[settings]]
+id = "blur_noise"
+title = "Blur noise"
+description = "Noise applied on top of the blur."
+type = "float"
+control = "slider"
+default = 0.02
+min = 0
+max = 1
+step = 0.02
+group = "Decoration"
+order = 15
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "decoration:blur:noise"
+
+[[settings]]
+id = "shadow_enabled"
+title = "Enable shadows"
+description = "Draw shadows behind windows."
+type = "boolean"
+control = "switch"
+default = true
+group = "Decoration"
+order = 16
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "decoration:drop_shadow"
+
+[[settings]]
+id = "shadow_range"
+title = "Shadow range"
+description = "Shadow blur distance."
+type = "integer"
+control = "slider"
+default = 20
+min = 0
+max = 100
+unit = "px"
+group = "Decoration"
+order = 17
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "decoration:shadow_range"
+
+[[settings]]
+id = "active_border_color"
+title = "Active border color"
+description = "Border color of the focused window."
+type = "enum"
+control = "dropdown"
+default = "#3584E4"
+group = "Decoration"
+order = 18
+[[settings.options]]
+value = "#3584E4"
+[[settings.options]]
+value = "#8AB4FF"
+[[settings.options]]
+value = "#70D0A9"
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "general:col.active_border"
+
+[[settings]]
+id = "vfr"
+title = "Variable frame rate"
+description = "Redraw only when needed."
+keywords = ["power"]
+type = "boolean"
+control = "switch"
+default = true
+group = "Misc"
+order = 19
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "misc:vfr"
+
+[[settings]]
+id = "mouse_follows_focus"
+title = "Mouse follows focus"
+description = "Move the pointer when focus changes."
+type = "boolean"
+control = "switch"
+default = true
+group = "Misc"
+order = 20
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "misc:mouse_move_enables_dpms"
+
+[[settings]]
+id = "focus_on_activate"
+title = "Focus on activate"
+description = "Focus a window when its client requests it."
+type = "boolean"
+control = "switch"
+default = true
+group = "Misc"
+order = 21
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "misc:focus_on_activate"
+
+[[settings]]
+id = "resize_on_border"
+title = "Resize on border"
+description = "Grab window borders to resize."
+type = "integer"
+control = "slider"
+default = 8
+min = 0
+max = 20
+unit = "px"
+group = "Misc"
+order = 22
+[settings.backend]
+kind = "file"
+path = "hypr/hyprland.conf"
+format = "keyfile"
+key = "general:resize_on_border"

@@ -21,4 +21,54 @@
       <summary>Enabled</summary>
     </key>
   </schema>
+  <schema id="org.gnome.desktop.interface" path="/org/gnome/desktop/interface/">
+    <key name="clock-format" type="s">
+      <default>'24h'</default>
+      <summary>Clock format</summary>
+    </key>
+    <key name="clock-show-weekday" type="b">
+      <default>false</default>
+      <summary>Show weekday in clock</summary>
+    </key>
+    <key name="clock-show-seconds" type="b">
+      <default>false</default>
+      <summary>Show seconds in clock</summary>
+    </key>
+    <key name="show-battery-percentage" type="b">
+      <default>false</default>
+      <summary>Show battery percentage</summary>
+    </key>
+    <key name="color-scheme" type="s">
+      <default>'default'</default>
+      <summary>Preferred color scheme</summary>
+    </key>
+    <key name="enable-animations" type="b">
+      <default>true</default>
+      <summary>Enable animations</summary>
+    </key>
+    <key name="cursor-size" type="i">
+      <default>24</default>
+      <summary>Cursor size</summary>
+    </key>
+    <key name="text-scaling-factor" type="d">
+      <default>1.0</default>
+      <summary>Text scaling factor</summary>
+    </key>
+    <key name="gtk-theme" type="s">
+      <default>'Adwaita'</default>
+      <summary>GTK theme</summary>
+    </key>
+    <key name="icon-theme" type="s">
+      <default>'Adwaita'</default>
+      <summary>Icon theme</summary>
+    </key>
+    <key name="font-name" type="s">
+      <default>'Sans 11'</default>
+      <summary>Default font</summary>
+    </key>
+    <key name="monospace-font-name" type="s">
+      <default>'Monospace 11'</default>
+      <summary>Monospace font</summary>
+    </key>
+  </schema>
 </schemalist>

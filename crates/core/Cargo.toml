@@ -13,3 +13,7 @@ path = "src/lib.rs"
 [dependencies]
 serde = { workspace = true }
 toml = { workspace = true }
+# JSON Schema generation for the module manifest contract
+# (04_MODULE_SCHEMA_AND_REGISTRY.md §5): the published schema is derived
+# from these canonical Rust types, so contract and code cannot drift.
+schemars = "1"

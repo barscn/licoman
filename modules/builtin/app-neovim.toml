@@ -1,0 +1,119 @@
+schema_version = 1
+id = "app.neovim"
+scope = "application"
+title = "Neovim"
+description = "Text editor. Basic editor options only; values are mock and the config binding is recorded for Phase 05."
+category = "Editor"
+order = 40
+docs_url = "https://neovim.io/doc/user/options.html"
+
+[compatibility]
+apps = ["nvim.desktop"]
+required_backends = ["config:nvim"]
+
+[support]
+maintainer = "Licoman maintainers"
+tested = ["Neovim 0.10+"]
+level = "partial"
+
+[[settings]]
+id = "tab_width"
+title = "Tab width"
+description = "Number of spaces a tab counts for."
+keywords = ["indent"]
+type = "integer"
+control = "number"
+default = 4
+min = 1
+max = 8
+group = "Editor"
+order = 1
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "expand_tab"
+title = "Expand tabs"
+description = "Insert spaces when Tab is pressed."
+keywords = ["indent"]
+type = "boolean"
+control = "switch"
+default = true
+group = "Editor"
+order = 2
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "line_numbers"
+title = "Line numbers"
+description = "Show absolute line numbers."
+type = "boolean"
+control = "switch"
+default = true
+group = "Editor"
+order = 3
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "relative_numbers"
+title = "Relative line numbers"
+description = "Show line distances from the cursor."
+type = "boolean"
+control = "switch"
+default = false
+group = "Editor"
+order = 4
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "wrap"
+title = "Wrap lines"
+description = "Wrap long lines to the window width."
+type = "boolean"
+control = "switch"
+default = false
+group = "Editor"
+order = 5
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "scrolloff"
+title = "Scroll offset"
+description = "Keep this many lines visible around the cursor."
+type = "integer"
+control = "slider"
+default = 5
+min = 0
+max = 20
+unit = "lines"
+group = "Editor"
+order = 6
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "cursor_line"
+title = "Highlight cursor line"
+description = "Highlight the line the cursor is on."
+type = "boolean"
+control = "switch"
+default = true
+group = "Editor"
+order = 7
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "reload_config"
+title = "Reload configuration"
+description = "Re-reads init.lua. Inert until a trusted backend exists."
+keywords = ["edit"]
+control = "action"
+group = "Editor"
+order = 8
+[settings.backend]
+kind = "mock"

@@ -13,7 +13,7 @@ use super::{DiscoverySources, ScanControl, ScanStatus, discover};
 use crate::discovery::matching::{NO_INTEGRATION_MESSAGE, build_app_list};
 use crate::discovery::os_release::ExecutionContext;
 use crate::discovery::session::{DesktopIdentity, Protocol};
-use crate::mock::Support;
+use crate::modules::def::SupportLevel;
 
 fn fixtures_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/discovery")
@@ -335,14 +335,14 @@ fn flatpak_app_without_module_is_installed_but_unsupported() {
 
     // Merged list: present in the all-applications view, unsupported, with
     // the honest message — never silently hidden.
-    let list = build_app_list(&snapshot.installed_apps, &snapshot.available_backends);
+    let list = build_app_list(&snapshot.installed_apps, &snapshot.available_backends, &[]);
     let entry = list
         .iter()
         .find(|e| e.identity == "com.example.HeavyApp.desktop")
         .expect("present in merged list");
     assert!(entry.app.is_some());
     assert_eq!(entry.module, None);
-    assert_eq!(entry.support, Support::Unsupported);
+    assert_eq!(entry.support, SupportLevel::Unsupported);
 }
 
 #[test]
@@ -466,7 +466,13 @@ fn synthetic_schema_fixture_enumerates_schemas_and_keys() {
             .iter()
             .map(|(name, _)| name.as_str())
             .collect::<Vec<_>>(),
-        vec!["org.licoman.Second", "org.licoman.Test"]
+        // The fixture also carries org.gnome.desktop.interface so the GNOME
+        // demo environments can ground module applicability (Phase 04).
+        vec![
+            "org.gnome.desktop.interface",
+            "org.licoman.Second",
+            "org.licoman.Test",
+        ]
     );
     let test = schemas
         .iter()
@@ -488,7 +494,7 @@ fn schema_probe_reads_the_fixture_database() {
     assert!(gsettings_backend.is_available());
     assert_eq!(
         gsettings_backend.detail.as_deref(),
-        Some("2 distinct schemas")
+        Some("3 distinct schemas")
     );
 }
 

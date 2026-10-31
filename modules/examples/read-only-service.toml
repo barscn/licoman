@@ -1,0 +1,28 @@
+schema_version = 1
+id = "shared.example.portal"
+scope = "shared"
+title = "Portal Settings Example"
+description = "A read-only service module: every setting is informational and the backend is a session-bus service."
+category = "Portal"
+
+[compatibility]
+required_backends = ["dbus"]
+
+[support]
+maintainer = "You"
+level = "read_only"
+
+[[settings]]
+id = "color_scheme"
+title = "Color scheme"
+description = "The desktop-wide light/dark preference."
+keywords = ["dark", "light"]
+type = "string"
+control = "read_only"
+policy = "read_only"
+[settings.backend]
+kind = "dbus"
+service = "org.freedesktop.portal.Desktop"
+path = "/org/freedesktop/portal/desktop"
+interface = "org.freedesktop.portal.Settings"
+property = "color-scheme"

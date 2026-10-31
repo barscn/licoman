@@ -1,0 +1,25 @@
+schema_version = 1
+id = "desktop.example.kde-only"
+scope = "desktop"
+title = "KDE-Only Example (intentionally incompatible)"
+description = "A valid module that intentionally fails compatibility on non-KDE systems: wrong desktop, unknown version requirement. Use it to see the preserved, distinct reasons."
+category = "Example"
+
+[compatibility]
+desktops = ["KDE"]
+required_backends = ["gsettings"]
+app_version = { min = "6.0" }
+
+[support]
+maintainer = "You"
+level = "supported"
+
+[[settings]]
+id = "single_click"
+title = "Single click to open"
+description = "Sample mock setting that would apply on KDE."
+type = "boolean"
+control = "switch"
+default = false
+[settings.backend]
+kind = "mock"

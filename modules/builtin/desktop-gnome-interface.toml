@@ -1,0 +1,229 @@
+schema_version = 1
+id = "desktop.gnome.interface"
+scope = "desktop"
+title = "GNOME Interface"
+description = "Appearance and behavior settings provided by GNOME. The module is hidden unless a GNOME session and the GSettings schema database are detected; this build never writes it."
+category = "Appearance"
+order = 30
+docs_url = "https://docs.gtk.org/gio/class.Settings.html"
+
+[compatibility]
+desktops = ["GNOME"]
+required_backends = ["gsettings"]
+
+[support]
+maintainer = "Licoman maintainers"
+tested = ["GNOME 45+"]
+level = "read_only"
+
+[[settings]]
+id = "clock.show_weekday"
+title = "Show weekday in clock"
+description = "Display the weekday in the top bar clock."
+keywords = ["clock", "date", "weekday", "top bar"]
+type = "boolean"
+control = "switch"
+policy = "immediate"
+default = true
+group = "Clock"
+order = 1
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.interface"
+key = "clock-show-weekday"
+
+[[settings]]
+id = "clock.show_seconds"
+title = "Show seconds in clock"
+description = "Display seconds in the top bar clock."
+keywords = ["clock"]
+type = "boolean"
+control = "switch"
+policy = "immediate"
+default = false
+group = "Clock"
+order = 2
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.interface"
+key = "clock-show-seconds"
+
+[[settings]]
+id = "clock.format"
+title = "Clock format"
+description = "12- or 24-hour clock display."
+keywords = ["clock", "time"]
+type = "enum"
+control = "dropdown"
+policy = "immediate"
+default = "24h"
+group = "Clock"
+order = 3
+[[settings.options]]
+value = "24h"
+label = "24-hour"
+[[settings.options]]
+value = "12h"
+label = "AM/PM"
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.interface"
+key = "clock-format"
+
+[[settings]]
+id = "power.battery_percentage"
+title = "Battery percentage"
+description = "Show the battery percentage in the top bar."
+keywords = ["battery", "power"]
+type = "boolean"
+control = "switch"
+policy = "immediate"
+default = false
+group = "Power"
+order = 4
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.interface"
+key = "show-battery-percentage"
+
+[[settings]]
+id = "color_scheme"
+title = "Color scheme"
+description = "Prefer light or dark interface styles."
+keywords = ["dark", "light", "theme"]
+type = "enum"
+control = "dropdown"
+policy = "immediate"
+default = "default"
+group = "Appearance"
+order = 5
+[[settings.options]]
+value = "default"
+label = "Default"
+[[settings.options]]
+value = "light"
+label = "Light"
+[[settings.options]]
+value = "dark"
+label = "Dark"
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.interface"
+key = "color-scheme"
+
+[[settings]]
+id = "gtk_theme"
+title = "GTK theme"
+description = "The widget theme family."
+type = "enum"
+control = "dropdown"
+default = "Adwaita"
+group = "Appearance"
+order = 6
+[[settings.options]]
+value = "Adwaita"
+[[settings.options]]
+value = "Adwaita-dark"
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.interface"
+key = "gtk-theme"
+
+[[settings]]
+id = "icon_theme"
+title = "Icon theme"
+description = "The icon set used by GTK applications."
+type = "enum"
+control = "dropdown"
+default = "Adwaita"
+group = "Appearance"
+order = 7
+[[settings.options]]
+value = "Adwaita"
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.interface"
+key = "icon-theme"
+
+[[settings]]
+id = "enable_animations"
+title = "Enable animations"
+description = "Whether GNOME animates transitions."
+type = "boolean"
+control = "switch"
+policy = "immediate"
+default = true
+group = "Appearance"
+order = 8
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.interface"
+key = "enable-animations"
+
+[[settings]]
+id = "cursor_size"
+title = "Cursor size"
+description = "Pointer size in pixels."
+type = "integer"
+control = "number"
+default = 24
+min = 12
+max = 96
+step = 2
+unit = "px"
+group = "Appearance"
+order = 9
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.interface"
+key = "cursor-size"
+
+[[settings]]
+id = "text_scaling_factor"
+title = "Text scaling factor"
+description = "Scales text across GNOME applications."
+keywords = ["accessibility", "zoom"]
+type = "float"
+control = "slider"
+default = 1.0
+min = 0.5
+max = 3
+step = 0.05
+group = "Appearance"
+order = 10
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.interface"
+key = "text-scaling-factor"
+
+[[settings]]
+id = "font_name"
+title = "Interface font"
+description = "The default application font."
+keywords = ["font"]
+type = "string"
+control = "text"
+default = "Sans 11"
+max_length = 100
+group = "Fonts"
+order = 11
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.interface"
+key = "font-name"
+
+[[settings]]
+id = "monospace_font_name"
+title = "Monospace font"
+description = "The default monospace font."
+keywords = ["font", "mono"]
+type = "string"
+control = "text"
+default = "Monospace 11"
+max_length = 100
+group = "Fonts"
+order = 12
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.interface"
+key = "monospace-font-name"

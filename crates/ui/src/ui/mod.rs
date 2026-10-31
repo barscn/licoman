@@ -6,6 +6,7 @@
 pub mod apps_window;
 pub mod main_window;
 pub mod preferences_window;
+pub mod setting_controls;
 
 use gpui_kit::component::tag::Tag;
 use gpui_kit::component::theme::Theme;
@@ -17,7 +18,7 @@ use gpui_kit::{
 };
 
 use crate::theme::metrics;
-use licoman_core::mock::Support;
+use licoman_core::modules::def::SupportLevel;
 
 /// Scope/window heading: 24 px, weight 600 (typography table).
 pub fn window_heading(text: impl Into<SharedString>, theme: &Theme) -> Div {
@@ -41,7 +42,7 @@ pub fn group_heading(text: impl Into<SharedString>, theme: &Theme) -> Div {
 
 /// A settings group: heading, then rows; 24 px vertical group separation is
 /// applied by the caller between groups.
-pub fn settings_group(title: &'static str, rows: Vec<AnyElement>, theme: &Theme) -> Div {
+pub fn settings_group(title: impl Into<SharedString>, rows: Vec<AnyElement>, theme: &Theme) -> Div {
     v_flex()
         .gap_1()
         .child(group_heading(title, theme))
@@ -121,11 +122,12 @@ pub fn read_only_value(value: impl Into<SharedString>, theme: &Theme) -> Div {
 }
 
 /// Support pill for the Applications window list and detail header.
-pub fn support_tag(support: Support) -> Tag {
+pub fn support_tag(support: SupportLevel) -> Tag {
     match support {
-        Support::Supported => Tag::success().small().child("Supported"),
-        Support::Partial => Tag::warning().small().child("Partial"),
-        Support::Unsupported => Tag::secondary().small().child("Unsupported"),
+        SupportLevel::Supported => Tag::success().small().child("Supported"),
+        SupportLevel::Partial => Tag::warning().small().child("Partial"),
+        SupportLevel::ReadOnly => Tag::info().small().child("Read-only"),
+        SupportLevel::Unsupported => Tag::secondary().small().child("Unsupported"),
     }
 }
 

@@ -1,0 +1,157 @@
+schema_version = 1
+id = "distro.services"
+scope = "distribution"
+title = "System Services"
+description = "Sample service settings managed by the system service manager. Service control needs a provider; only detected unit names are shown."
+category = "Services"
+order = 20
+
+[support]
+maintainer = "Licoman maintainers"
+level = "partial"
+
+[[settings]]
+id = "timesync"
+title = "Time synchronization"
+description = "The active time synchronization service."
+keywords = ["ntp", "clock"]
+type = "string"
+control = "read_only"
+policy = "read_only"
+default = "systemd-timesyncd"
+group = "Time"
+order = 1
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "timesync_servers"
+title = "NTP servers"
+description = "Extra NTP servers to use (space-separated)."
+type = "string"
+control = "text"
+default = ""
+max_length = 300
+group = "Time"
+order = 2
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "journal_storage"
+title = "Journal storage"
+description = "Where the system journal is stored."
+type = "enum"
+control = "dropdown"
+default = "auto"
+group = "Logging"
+order = 3
+[[settings.options]]
+value = "auto"
+[[settings.options]]
+value = "volatile"
+[[settings.options]]
+value = "persistent"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "journal_retention"
+title = "Journal retention"
+description = "How long journal entries are kept (e.g. 2week)."
+type = "string"
+control = "text"
+default = ""
+max_length = 32
+group = "Logging"
+order = 4
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "coredump_storage"
+title = "Store core dumps"
+description = "Keep crash dumps for debugging."
+type = "boolean"
+control = "switch"
+default = true
+group = "Diagnostics"
+order = 5
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "coredump_size_limit"
+title = "Core dump size limit"
+description = "Maximum size of one crash dump."
+type = "integer"
+control = "slider"
+default = 1024
+min = 0
+max = 4096
+unit = "MiB"
+group = "Diagnostics"
+order = 6
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "kill_user_processes"
+title = "Kill user processes at logout"
+description = "Whether logging out terminates all user processes."
+type = "boolean"
+control = "switch"
+risk = "high"
+default = false
+group = "Sessions"
+order = 7
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "handle_lid_switch"
+title = "Handle lid switch"
+description = "React to the laptop lid."
+type = "boolean"
+control = "switch"
+default = true
+group = "Sessions"
+order = 8
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "dnssec"
+title = "DNSSEC mode"
+description = "DNSSEC validation strictness of the resolver."
+type = "enum"
+control = "dropdown"
+default = "allow-downgrade"
+group = "Resolution"
+order = 9
+[[settings.options]]
+value = "allow-downgrade"
+[[settings.options]]
+value = "yes"
+[[settings.options]]
+value = "no"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "dns_over_tls"
+title = "DNS over TLS"
+description = "Encrypt resolver traffic."
+type = "enum"
+control = "dropdown"
+default = "opportunistic"
+group = "Resolution"
+order = 10
+[[settings.options]]
+value = "opportunistic"
+[[settings.options]]
+value = "yes"
+[[settings.options]]
+value = "no"
+[settings.backend]
+kind = "mock"

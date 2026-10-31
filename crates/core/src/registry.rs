@@ -39,7 +39,7 @@ impl Registry {
         let provider_index = self.providers.len();
         let probe = provider.probe();
         for descriptor in provider.descriptors() {
-            if cfg!(debug_assertions) && self.index.contains_key(descriptor.id) {
+            if cfg!(debug_assertions) && self.index.contains_key(descriptor.id.as_str()) {
                 panic!("duplicate setting id in registry: {}", descriptor.id);
             }
             self.ordered.push(descriptor.clone());
@@ -118,11 +118,11 @@ mod tests {
         }
         fn descriptors(&self) -> Vec<SettingDescriptor> {
             vec![SettingDescriptor {
-                id: "one.setting",
+                id: "one.setting".to_string(),
                 scope: Scope::Shared,
-                category: "C",
-                label: "One",
-                description: "",
+                category: "C".to_string(),
+                label: "One".to_string(),
+                description: String::new(),
                 setting_type: SettingType::Bool,
                 control: Control::Switch,
                 apply_mode: ApplyMode::Staged,
@@ -131,6 +131,8 @@ mod tests {
                 note: None,
                 min: None,
                 max: None,
+                keywords: Vec::new(),
+                module_id: String::new(),
             }]
         }
         fn read(&self, _id: &str) -> Result<SettingValue, LicomanError> {

@@ -1,0 +1,170 @@
+schema_version = 1
+id = "app.mpv"
+scope = "application"
+title = "MPV"
+description = "Media player. A subset of playback and video options; values are mock and the config binding is recorded for Phase 05."
+category = "Media"
+order = 30
+docs_url = "https://mpv.io/manual/"
+
+[compatibility]
+apps = ["mpv.desktop"]
+required_backends = ["config:mpv"]
+
+[support]
+maintainer = "Licoman maintainers"
+tested = ["mpv 0.38+"]
+level = "partial"
+
+[[settings]]
+id = "volume"
+title = "Volume"
+description = "Startup volume level."
+type = "float"
+control = "slider"
+default = 100
+min = 0
+max = 130
+step = 1
+unit = "%"
+group = "Playback"
+order = 1
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "volume_max"
+title = "Maximum volume"
+description = "Upper volume bound."
+type = "integer"
+control = "slider"
+default = 130
+min = 100
+max = 1000
+step = 10
+group = "Playback"
+order = 2
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "speed"
+title = "Playback speed"
+description = "Default playback rate."
+type = "float"
+control = "slider"
+default = 1
+min = 0.25
+max = 4
+step = 0.05
+group = "Playback"
+order = 3
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "save_position_on_quit"
+title = "Save position on quit"
+description = "Resume playback where it stopped."
+type = "boolean"
+control = "switch"
+default = true
+group = "Playback"
+order = 4
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "keep_open"
+title = "Keep window open"
+description = "Keep the window after playback ends."
+type = "boolean"
+control = "switch"
+default = false
+group = "Playback"
+order = 5
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "demuxer_cache"
+title = "Demuxer cache"
+description = "Memory used for read-ahead caching."
+type = "integer"
+control = "slider"
+default = 150
+min = 0
+max = 1024
+unit = "MiB"
+group = "Playback"
+order = 6
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "fullscreen"
+title = "Start fullscreen"
+description = "Open videos fullscreen."
+type = "boolean"
+control = "switch"
+default = false
+group = "Video"
+order = 7
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "video_sync"
+title = "Video sync mode"
+description = "How audio and video are synchronized."
+type = "enum"
+control = "dropdown"
+default = "audio"
+group = "Video"
+order = 8
+[[settings.options]]
+value = "audio"
+[[settings.options]]
+value = "display-resample"
+[[settings.options]]
+value = "display-vdrop"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "hwdec"
+title = "Hardware decoding"
+description = "Use the GPU to decode video."
+type = "enum"
+control = "dropdown"
+default = "auto"
+group = "Video"
+order = 9
+[[settings.options]]
+value = "auto"
+[[settings.options]]
+value = "no"
+[[settings.options]]
+value = "yes"
+[[settings.options]]
+value = "safe"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "profile"
+title = "Quality profile"
+description = "Preset of rendering options."
+type = "enum"
+control = "dropdown"
+default = "Default"
+group = "Video"
+order = 10
+[[settings.options]]
+value = "Default"
+[[settings.options]]
+value = "GPU"
+[[settings.options]]
+value = "HQ"
+[settings.backend]
+kind = "mock"

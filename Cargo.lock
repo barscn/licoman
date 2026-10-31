@@ -3366,12 +3366,15 @@ dependencies = [
  "gpui-kit",
  "licoman-core",
  "licoman-ui",
+ "schemars",
+ "serde_json",
 ]
 
 [[package]]
 name = "licoman-core"
 version = "0.1.0"
 dependencies = [
+ "schemars",
  "serde",
  "toml 0.9.12+spec-1.1.0",
 ]

@@ -349,6 +349,12 @@ pub struct EnvironmentSnapshot {
     pub installed_apps: Vec<InstalledApp>,
     pub available_backends: Vec<BackendCapability>,
     pub problems: Vec<DetectionProblem>,
+    /// GSettings schemas with their key names (Phase 04: module applicability
+    /// checks specific schema/key bindings against these facts).
+    pub gsettings_schemas: BTreeMap<String, std::collections::BTreeSet<String>>,
+    /// Well-known names visible on the session bus (Phase 04: service
+    /// bindings check against these).
+    pub bus_names: std::collections::BTreeSet<String>,
 }
 
 impl EnvironmentSnapshot {
@@ -386,6 +392,8 @@ pub struct DiscoveryRun {
     session: Option<SessionEvidence>,
     installed_apps: Vec<InstalledApp>,
     available_backends: Vec<BackendCapability>,
+    gsettings_schemas: BTreeMap<String, std::collections::BTreeSet<String>>,
+    bus_names: std::collections::BTreeSet<String>,
     problems: Vec<DetectionProblem>,
     timings: ScanTimings,
     next_stage: Option<ScanStage>,
@@ -416,6 +424,8 @@ impl DiscoveryRun {
             installed_apps: self.installed_apps.clone(),
             available_backends: self.available_backends.clone(),
             problems: self.problems.clone(),
+            gsettings_schemas: self.gsettings_schemas.clone(),
+            bus_names: self.bus_names.clone(),
         }
     }
 
@@ -474,8 +484,10 @@ impl DiscoveryRun {
             }
             ScanStage::Backends => {
                 let started = Instant::now();
-                let (available_backends, problems) = backends::probe_all(sources);
+                let (available_backends, facts, problems) = backends::probe_all(sources);
                 self.available_backends = available_backends;
+                self.gsettings_schemas = facts.gsettings_schemas;
+                self.bus_names = facts.bus_names;
                 self.timings.backends_micros = started.elapsed().as_micros() as u64;
                 self.problems.extend(problems);
                 self.next_stage = None;

@@ -72,6 +72,22 @@ fn backend(
     }
 }
 
+/// GSettings schema facts: the **real GVDB parser** over the committed
+/// synthetic fixture (which includes `org.gnome.desktop.interface`), so the
+/// GNOME demo environments ground module applicability in parser output.
+fn schema_facts() -> BTreeMap<String, std::collections::BTreeSet<String>> {
+    let data = include_bytes!("../../../../tests/fixtures/discovery/schemas/gschemas.compiled");
+    super::gsettings::parse_compiled_schemas(data)
+        .unwrap_or_else(|error| panic!("embedded schema fixture must parse: {error:?}"))
+        .into_iter()
+        .map(|(name, keys)| (name, keys.into_iter().collect()))
+        .collect()
+}
+
+fn bus_names(names: &[&str]) -> std::collections::BTreeSet<String> {
+    names.iter().map(|n| n.to_string()).collect()
+}
+
 /// The host-like reference: Arch + Hyprland + Wayland.
 pub fn arch_hyprland_wayland() -> EnvironmentSnapshot {
     let (session, _) = detect_session(&env(&[
@@ -136,6 +152,11 @@ pub fn arch_hyprland_wayland() -> EnvironmentSnapshot {
             backend("config:kitty", BackendKind::AppConfig, true, None),
         ],
         problems: Vec::new(),
+        gsettings_schemas: schema_facts(),
+        bus_names: bus_names(&[
+            "org.freedesktop.portal.Desktop",
+            "org.freedesktop.Notifications",
+        ]),
     }
 }
 
@@ -168,8 +189,18 @@ pub fn fedora_gnome_wayland() -> EnvironmentSnapshot {
                 true,
                 Some("96 distinct schemas".into()),
             ),
+            backend("config:alacritty", BackendKind::AppConfig, true, None),
+            backend("config:kitty", BackendKind::AppConfig, true, None),
+            backend("config:mpv", BackendKind::AppConfig, true, None),
+            backend("config:nvim", BackendKind::AppConfig, true, None),
         ],
         problems: Vec::new(),
+        gsettings_schemas: schema_facts(),
+        bus_names: bus_names(&[
+            "org.freedesktop.portal.Desktop",
+            "org.gnome.Shell",
+            "org.gnome.SessionManager",
+        ]),
     }
 }
 
@@ -197,6 +228,8 @@ pub fn ubuntu_gnome_x11() -> EnvironmentSnapshot {
             backend("dbus-session", BackendKind::Service, true, None),
         ],
         problems: Vec::new(),
+        gsettings_schemas: schema_facts(),
+        bus_names: bus_names(&["org.freedesktop.portal.Desktop"]),
     }
 }
 
@@ -225,6 +258,8 @@ pub fn debian_xfce() -> EnvironmentSnapshot {
             backend("dbus-session", BackendKind::Service, true, None),
         ],
         problems: Vec::new(),
+        gsettings_schemas: schema_facts(),
+        bus_names: bus_names(&["org.freedesktop.portal.Desktop"]),
     }
 }
 
@@ -246,6 +281,8 @@ pub fn multi_xdg_ambiguous() -> EnvironmentSnapshot {
         installed_apps: Vec::new(),
         available_backends: Vec::new(),
         problems: Vec::new(),
+        gsettings_schemas: BTreeMap::new(),
+        bus_names: Default::default(),
     }
 }
 
@@ -259,6 +296,8 @@ pub fn empty_environment() -> EnvironmentSnapshot {
         installed_apps: Vec::new(),
         available_backends: Vec::new(),
         problems: Vec::new(),
+        gsettings_schemas: BTreeMap::new(),
+        bus_names: Default::default(),
     }
 }
 

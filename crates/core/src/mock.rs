@@ -1,6 +1,8 @@
-//! Deterministic mock provider: drives the full shell — search, lifecycle,
-//! unavailable/permission/read-only states, apply failures and external
-//! conflicts — without any installed software (02_FOUNDATION.md §2).
+//! Deterministic mock provider: drives the store lifecycle tests — search,
+//! dirty/apply/failure/conflict transitions — without any installed software
+//! (02_FOUNDATION.md §2). Since Phase 04 the *shipped* catalog comes from
+//! module manifests ([`crate::modules`]); this hand-written provider remains
+//! as the lifecycle-test fixture and is not registered by the app.
 //!
 //! Determinism: reads return values from a per-setting sequence (so an
 //! external change can be simulated as "the source changed between our
@@ -116,7 +118,7 @@ impl MockProvider {
                 )
                 .apply(|d| {
                     d.note = Some(
-                        "Reads the desktop accessibility service; provider arrives with discovery.",
+                        "Reads the desktop accessibility service; provider arrives with discovery.".into(),
                     );
                 }),
                 SettingValue::Text("Provided by desktop".into()),
@@ -150,7 +152,7 @@ impl MockProvider {
                     "A system resolver setting. Apply always fails in the mock to show failure handling.",
                     SettingType::Text,
                     Control::Text {
-                        placeholder: "Leave empty to keep system default",
+                        placeholder: "Leave empty to keep system default".into(),
                     },
                 ),
                 SettingValue::Text(String::new()),
@@ -179,7 +181,7 @@ impl MockProvider {
                     SettingType::Float,
                     Control::Slider {
                         step: 1.,
-                        unit: "%",
+                        unit: "%".into(),
                     },
                 )
                 .apply(|d| {
@@ -205,7 +207,7 @@ impl MockProvider {
                     },
                 )
                 .apply(|d| {
-                    d.restart_target = Some("Hyprland session");
+                    d.restart_target = Some("Hyprland session".into());
                 }),
                 SettingValue::Choice("300 ms".into()),
             ),
@@ -253,7 +255,7 @@ impl MockProvider {
                     Control::ReadOnly,
                 )
                 .apply(|d| {
-                    d.permission_scope = Some("System package database");
+                    d.permission_scope = Some("System package database".into());
                 }),
                 SettingValue::Text("Not available".into()),
             ),
@@ -267,7 +269,7 @@ impl MockProvider {
                     SettingType::Integer,
                     Control::Number {
                         step: 1.,
-                        unit: "connections",
+                        unit: "connections".into(),
                     },
                 )
                 .apply(|d| {
@@ -288,7 +290,7 @@ impl MockProvider {
                 )
                 .apply(|d| {
                     d.note =
-                        Some("Service control needs a provider; showing the detected unit name only.");
+                        Some("Service control needs a provider; showing the detected unit name only.".into());
                 }),
                 SettingValue::Text("systemd-timesyncd".into()),
             ),
@@ -333,7 +335,7 @@ impl Provider for MockProvider {
                 format!("mock fixture marks {id:?} unavailable"),
             ));
         }
-        if let Some(scope) = fixture.descriptor.permission_scope {
+        if let Some(scope) = &fixture.descriptor.permission_scope {
             return Err(LicomanError::new(
                 ErrorKind::Permission,
                 format!("Requires permission — {scope}"),
@@ -407,89 +409,6 @@ impl ApplyOn for SettingDescriptor {
     }
 }
 
-/// The sample application catalog for the Applications window (mock data,
-/// carried over unchanged from Phase 01).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Support {
-    Supported,
-    Partial,
-    Unsupported,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct AppEntry {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub description: &'static str,
-    pub support: Support,
-    /// Categories (tabs) with a short reason line each, for the detail pane.
-    pub categories: &'static [(&'static str, &'static str)],
-    /// Sample config source shown under "Configuration source".
-    pub source: &'static str,
-}
-
-pub const APPS_CATALOG: &[AppEntry] = &[
-    AppEntry {
-        id: "alacritty",
-        name: "Alacritty",
-        description: "Terminal emulator",
-        support: Support::Supported,
-        categories: &[
-            ("Appearance", "Font, padding and opacity."),
-            ("Window", "Startup mode and dimensions."),
-            ("Cursor", "Style and blink behavior."),
-            ("Advanced", "Bell, scrolling and bindings."),
-        ],
-        source: "~/.config/alacritty/alacritty.toml (sample path)",
-    },
-    AppEntry {
-        id: "kitty",
-        name: "Kitty",
-        description: "Terminal emulator",
-        support: Support::Supported,
-        categories: &[
-            ("Appearance", "Font, colors and padding."),
-            ("Window", "Layouts and startup behavior."),
-            ("Advanced", "Clipboard and shell integration."),
-        ],
-        source: "~/.config/kitty/kitty.conf (sample path)",
-    },
-    AppEntry {
-        id: "mpv",
-        name: "MPV",
-        description: "Media player",
-        support: Support::Partial,
-        categories: &[
-            ("Playback", "A subset of playback options."),
-            ("Video", "Video output settings."),
-        ],
-        source: "~/.config/mpv/mpv.conf (sample path)",
-    },
-    AppEntry {
-        id: "neovim",
-        name: "Neovim",
-        description: "Text editor",
-        support: Support::Partial,
-        categories: &[("Editor", "Basic editor options only.")],
-        source: "~/.config/nvim/init.lua (sample path)",
-    },
-    AppEntry {
-        id: "zed",
-        name: "Zed",
-        description: "Code editor",
-        support: Support::Unsupported,
-        categories: &[],
-        source: "~/.config/zed/settings.json (sample path)",
-    },
-];
-
-/// The sample environment shown in the main-window sidebar footer. Clearly
-/// sample data, not real detection (discovery is Phase 03).
-pub const MOCK_ENVIRONMENT: &[(&str, &str)] = &[
-    ("Arch Linux", "Distribution"),
-    ("Hyprland (Wayland)", "Session"),
-];
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -497,7 +416,11 @@ mod tests {
     #[test]
     fn standard_fixtures_have_unique_stable_ids() {
         let provider = MockProvider::standard();
-        let ids: Vec<&str> = provider.fixtures.iter().map(|f| f.descriptor.id).collect();
+        let ids: Vec<String> = provider
+            .fixtures
+            .iter()
+            .map(|f| f.descriptor.id.clone())
+            .collect();
         for (i, a) in ids.iter().enumerate() {
             for b in ids.iter().skip(i + 1) {
                 assert_ne!(a, b);
@@ -563,7 +486,7 @@ mod tests {
                         SettingType::Text,
                         Control::ReadOnly,
                     )
-                    .apply(|d| d.permission_scope = Some("Root")),
+                    .apply(|d| d.permission_scope = Some("Root".into())),
                     SettingValue::Text("x".into()),
                 ),
             ],

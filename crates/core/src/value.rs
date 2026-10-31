@@ -212,11 +212,11 @@ mod tests {
 
     fn descriptor(control: Control, setting_type: SettingType) -> SettingDescriptor {
         SettingDescriptor {
-            id: "test.setting",
+            id: "test.setting".to_string(),
             scope: Scope::Shared,
-            category: "Test",
-            label: "Test setting",
-            description: "desc",
+            category: "Test".to_string(),
+            label: "Test setting".to_string(),
+            description: "desc".to_string(),
             setting_type,
             control,
             apply_mode: ApplyMode::Staged,
@@ -225,12 +225,19 @@ mod tests {
             note: None,
             min: None,
             max: None,
+            keywords: Vec::new(),
+            module_id: String::new(),
         }
     }
 
     #[test]
     fn type_must_match_descriptor() {
-        let d = descriptor(Control::Text { placeholder: "" }, SettingType::Text);
+        let d = descriptor(
+            Control::Text {
+                placeholder: String::new(),
+            },
+            SettingType::Text,
+        );
         assert!(validate(&d, &SettingValue::Text("ok".into())).is_ok());
         assert!(validate(&d, &SettingValue::Integer(3)).is_err());
     }
@@ -254,7 +261,13 @@ mod tests {
 
     #[test]
     fn numbers_respect_bounds() {
-        let d = descriptor(Control::Number { step: 1., unit: "" }, SettingType::Integer);
+        let d = descriptor(
+            Control::Number {
+                step: 1.,
+                unit: String::new(),
+            },
+            SettingType::Integer,
+        );
         let mut d = d;
         d.min = Some(0.);
         d.max = Some(64.);

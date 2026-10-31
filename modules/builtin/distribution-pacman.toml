@@ -1,0 +1,167 @@
+schema_version = 1
+id = "distro.packages"
+scope = "distribution"
+title = "Pacman"
+description = "Sample package-manager settings for pacman. Privileged edits are deferred until the safe write engine is reviewed (Phases 06-07)."
+category = "Packages"
+order = 10
+docs_url = "https://man.archlinux.org/man/pacman.conf.5"
+
+[compatibility]
+distros = ["arch"]
+
+[support]
+maintainer = "Licoman maintainers"
+tested = ["pacman 6+"]
+level = "partial"
+
+[[settings]]
+id = "parallel_downloads"
+title = "Parallel downloads"
+description = "Number of simultaneous package downloads."
+keywords = ["download", "speed"]
+type = "integer"
+control = "number"
+default = 5
+min = 0
+max = 64
+group = "Downloads"
+order = 1
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "download_timeout"
+title = "Download timeout"
+description = "Per-transfer timeout for package downloads."
+type = "integer"
+control = "slider"
+default = 120
+min = 30
+max = 600
+step = 10
+unit = "s"
+group = "Downloads"
+order = 2
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "cache_keep"
+title = "Cached versions to keep"
+description = "How many old package versions the cache keeps."
+type = "integer"
+control = "number"
+default = 3
+min = 0
+max = 20
+group = "Maintenance"
+order = 3
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "check_space"
+title = "Check disk space"
+description = "Verify free space before installing."
+type = "boolean"
+control = "switch"
+default = true
+group = "Maintenance"
+order = 4
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "clean_after_install"
+title = "Clean after install"
+description = "Remove installation packages afterwards."
+type = "boolean"
+control = "switch"
+default = false
+group = "Maintenance"
+order = 5
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "color_output"
+title = "Color output"
+description = "Colorize package manager output."
+type = "boolean"
+control = "switch"
+default = true
+group = "Interface"
+order = 6
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "verbose_pkg_lists"
+title = "Verbose package lists"
+description = "Show extra columns in package listings."
+type = "boolean"
+control = "switch"
+default = false
+group = "Interface"
+order = 7
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "sig_level"
+title = "Signature level"
+description = "Package signature checking strictness."
+type = "enum"
+control = "dropdown"
+risk = "high"
+default = "Required"
+group = "Security"
+order = 8
+[[settings.options]]
+value = "Required"
+[[settings.options]]
+value = "Required TrustedOnly"
+[[settings.options]]
+value = "Optional"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "ignore_pkg"
+title = "Ignored packages"
+description = "Packages the updater skips (space-separated)."
+type = "string"
+control = "text"
+default = ""
+max_length = 500
+group = "Maintenance"
+order = 9
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "multilib"
+title = "Multilib repository"
+description = "32-bit compatibility repository is enabled."
+type = "boolean"
+control = "switch"
+default = false
+group = "Repositories"
+order = 10
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "updates"
+title = "System updates"
+description = "Installing updates runs the package manager with elevated permissions and is out of scope for this build."
+type = "string"
+control = "read_only"
+policy = "read_only"
+required_auth = "org.archlinux.pacman"
+default = "Not available"
+group = "Updates"
+order = 11
+[settings.backend]
+kind = "mock"

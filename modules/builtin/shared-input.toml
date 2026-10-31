@@ -1,0 +1,228 @@
+schema_version = 1
+id = "shared.input"
+scope = "shared"
+title = "Input"
+description = "Sample pointer and keyboard accessibility settings served by the mock value source."
+category = "Input"
+order = 50
+
+[support]
+maintainer = "Licoman maintainers"
+level = "supported"
+
+[[settings]]
+id = "natural_scroll_mouse"
+title = "Natural scrolling (mouse)"
+description = "Invert the mouse wheel direction."
+keywords = ["reverse"]
+type = "boolean"
+control = "switch"
+default = false
+group = "Mouse"
+order = 1
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "pointer_acceleration"
+title = "Pointer acceleration"
+description = "Flat means 1:1 movement."
+type = "enum"
+control = "dropdown"
+default = "Adaptive"
+group = "Mouse"
+order = 2
+[[settings.options]]
+value = "Flat"
+[[settings.options]]
+value = "Adaptive"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "pointer_speed"
+title = "Pointer speed"
+description = "Adjust the pointer speed profile."
+type = "float"
+control = "slider"
+default = 0
+min = -1
+max = 1
+step = 0.1
+group = "Mouse"
+order = 3
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "double_click_time"
+title = "Double-click time"
+description = "Maximum interval between clicks."
+type = "integer"
+control = "slider"
+default = 400
+min = 100
+max = 1000
+step = 50
+unit = "ms"
+group = "Mouse"
+order = 4
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "drag_threshold"
+title = "Drag threshold"
+description = "Movement that starts a drag."
+type = "integer"
+control = "slider"
+default = 8
+min = 1
+max = 32
+unit = "px"
+group = "Mouse"
+order = 5
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "middle_click_paste"
+title = "Middle-click paste"
+description = "Paste the primary selection with the middle button."
+type = "boolean"
+control = "switch"
+default = true
+group = "Mouse"
+order = 6
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "natural_scroll_touchpad"
+title = "Natural scrolling (touchpad)"
+description = "Invert the touchpad scroll direction."
+type = "boolean"
+control = "switch"
+default = true
+group = "Touchpad"
+order = 7
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "tap_to_click"
+title = "Tap to click"
+description = "Tap the touchpad to click."
+keywords = ["tapping"]
+type = "boolean"
+control = "switch"
+default = true
+group = "Touchpad"
+order = 8
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "touchpad_scroll_method"
+title = "Touchpad scrolling"
+description = "How the touchpad scrolls."
+type = "enum"
+control = "dropdown"
+default = "Two-finger"
+group = "Touchpad"
+order = 9
+[[settings.options]]
+value = "Two-finger"
+[[settings.options]]
+value = "Edge"
+[[settings.options]]
+value = "Clickpad"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "cursor_blink"
+title = "Cursor blink"
+description = "Blink the text cursor."
+type = "boolean"
+control = "switch"
+default = true
+group = "Keyboard"
+order = 10
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "cursor_blink_time"
+title = "Cursor blink interval"
+description = "Blink cycle length."
+type = "integer"
+control = "slider"
+default = 1200
+min = 100
+max = 2500
+step = 100
+unit = "ms"
+group = "Keyboard"
+order = 11
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "keyboard_layout"
+title = "Keyboard layout"
+description = "The active key mapping."
+keywords = ["keymap"]
+type = "enum"
+control = "dropdown"
+default = "us"
+group = "Keyboard"
+order = 12
+[[settings.options]]
+value = "us"
+[[settings.options]]
+value = "de"
+[[settings.options]]
+value = "tr"
+[[settings.options]]
+value = "fr"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "sticky_keys"
+title = "Sticky keys"
+description = "Perform key combinations one key at a time."
+keywords = ["a11y"]
+type = "boolean"
+control = "switch"
+default = false
+group = "Accessibility"
+order = 13
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "slow_keys"
+title = "Slow keys"
+description = "Require a key to be held before it registers."
+keywords = ["a11y"]
+type = "boolean"
+control = "switch"
+default = false
+group = "Accessibility"
+order = 14
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "primary_selection_sync"
+title = "Sync primary selection"
+description = "Share the primary selection with clipboard tools."
+type = "boolean"
+control = "switch"
+default = true
+group = "Accessibility"
+order = 15
+[settings.backend]
+kind = "mock"

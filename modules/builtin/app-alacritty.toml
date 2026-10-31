@@ -1,0 +1,305 @@
+schema_version = 1
+id = "app.alacritty"
+scope = "application"
+title = "Alacritty"
+description = "Terminal emulator. Values are mock; the TOML config binding is recorded for Phase 05."
+category = "Terminal"
+order = 10
+docs_url = "https://alacritty.org/config-alacritty.html"
+
+[compatibility]
+apps = ["alacritty.desktop"]
+required_backends = ["config:alacritty"]
+
+[support]
+maintainer = "Licoman maintainers"
+tested = ["Alacritty 0.13+"]
+level = "supported"
+
+[[settings]]
+id = "font_family"
+title = "Font family"
+description = "The terminal font family."
+keywords = ["font"]
+type = "string"
+control = "text"
+default = ""
+max_length = 100
+group = "Appearance"
+order = 1
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "font_size"
+title = "Font size"
+description = "The terminal font size."
+keywords = ["font"]
+type = "float"
+control = "slider"
+default = 13
+min = 6
+max = 32
+step = 0.5
+unit = "pt"
+group = "Appearance"
+order = 2
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "padding_x"
+title = "Horizontal padding"
+description = "Space between text and the window edge."
+type = "integer"
+control = "slider"
+default = 4
+min = 0
+max = 40
+unit = "px"
+group = "Appearance"
+order = 3
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "padding_y"
+title = "Vertical padding"
+description = "Space above and below the text."
+type = "integer"
+control = "slider"
+default = 4
+min = 0
+max = 40
+unit = "px"
+group = "Appearance"
+order = 4
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "opacity"
+title = "Opacity"
+description = "Window background opacity."
+keywords = ["transparency", "blur"]
+type = "float"
+control = "slider"
+default = 1
+min = 0.3
+max = 1
+step = 0.05
+group = "Appearance"
+order = 5
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "colors_primary_foreground"
+title = "Foreground color"
+description = "The primary foreground color."
+type = "string"
+control = "text"
+default = ""
+max_length = 20
+group = "Appearance"
+order = 6
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "startup_mode"
+title = "Startup mode"
+description = "How new windows appear."
+type = "enum"
+control = "dropdown"
+default = "Windowed"
+group = "Window"
+order = 7
+[[settings.options]]
+value = "Windowed"
+[[settings.options]]
+value = "Maximized"
+[[settings.options]]
+value = "Fullscreen"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "dynamic_title"
+title = "Dynamic title"
+description = "Let the shell update the window title."
+type = "boolean"
+control = "switch"
+default = true
+group = "Window"
+order = 8
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "columns"
+title = "Default columns"
+description = "Initial window width in columns."
+type = "integer"
+control = "number"
+default = 120
+min = 10
+max = 500
+group = "Window"
+order = 9
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "lines"
+title = "Default lines"
+description = "Initial window height in lines."
+type = "integer"
+control = "number"
+default = 40
+min = 5
+max = 200
+group = "Window"
+order = 10
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "cursor_style"
+title = "Cursor style"
+description = "The terminal cursor shape."
+type = "enum"
+control = "dropdown"
+default = "Block"
+group = "Cursor"
+order = 11
+[[settings.options]]
+value = "Block"
+[[settings.options]]
+value = "Underline"
+[[settings.options]]
+value = "Beam"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "cursor_unfocused_hollow"
+title = "Hollow unfocused cursor"
+description = "Draw an unfocused cursor as a hollow box."
+type = "boolean"
+control = "switch"
+default = true
+group = "Cursor"
+order = 12
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "cursor_blink"
+title = "Cursor blink"
+description = "Whether the terminal cursor blinks."
+type = "boolean"
+control = "switch"
+default = false
+group = "Cursor"
+order = 13
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "scrollback_lines"
+title = "Scrollback lines"
+description = "How much history is kept."
+type = "integer"
+control = "slider"
+default = 10000
+min = 0
+max = 100000
+step = 1000
+group = "Advanced"
+order = 14
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "live_config_reload"
+title = "Live config reload"
+description = "Apply config file changes immediately."
+type = "boolean"
+control = "switch"
+default = true
+group = "Advanced"
+order = 15
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "bell_animation"
+title = "Bell animation"
+description = "Visual effect when the bell rings."
+type = "enum"
+control = "dropdown"
+default = "None"
+group = "Advanced"
+order = 16
+[[settings.options]]
+value = "Ease"
+[[settings.options]]
+value = "EaseOutFlash"
+[[settings.options]]
+value = "EaseOutQuad"
+[[settings.options]]
+value = "None"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "mouse_hide_typing"
+title = "Hide mouse while typing"
+description = "Hide the pointer when keys are pressed."
+type = "boolean"
+control = "switch"
+default = true
+group = "Advanced"
+order = 17
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "shell"
+title = "Shell"
+description = "The program started in new terminals. Empty uses the login shell."
+type = "path"
+control = "path_input"
+default = ""
+nullable = true
+max_length = 200
+group = "Advanced"
+order = 18
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "working_directory"
+title = "Working directory"
+description = "Directory new terminals start in."
+type = "path"
+control = "path_input"
+default = ""
+nullable = true
+max_length = 200
+group = "Advanced"
+order = 19
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "open_config"
+title = "Open configuration"
+description = "Opens the Alacritty configuration file in an editor. Inert until a trusted backend exists."
+keywords = ["edit"]
+control = "action"
+group = "Advanced"
+order = 20
+[settings.backend]
+kind = "mock"

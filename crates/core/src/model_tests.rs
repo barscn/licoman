@@ -116,7 +116,10 @@ fn invalid_value_is_rejected_at_apply_with_user_safe_error() {
                 "Number",
                 "",
                 SettingType::Integer,
-                Control::Number { step: 1., unit: "" },
+                Control::Number {
+                    step: 1.,
+                    unit: String::new(),
+                },
             );
             d.min = Some(0.);
             d.max = Some(64.);

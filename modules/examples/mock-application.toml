@@ -1,0 +1,58 @@
+schema_version = 1
+id = "app.example-terminal"
+scope = "application"
+title = "Example Terminal (mock)"
+description = "An annotated mock application module: add a file like this, register it in the built-in table, rebuild - no GPUI changes."
+category = "Terminal"
+
+[compatibility]
+apps = ["example-terminal.desktop"]
+
+[support]
+maintainer = "You"
+tested = ["nothing - it is a mock"]
+level = "supported"
+
+[[settings]]
+id = "font_size"
+title = "Font size"
+description = "Sample float slider bound to the mock value source."
+keywords = ["font"]
+type = "float"
+control = "slider"
+default = 13
+min = 6
+max = 32
+step = 0.5
+unit = "pt"
+group = "Appearance"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "word_wrap"
+title = "Word wrap"
+description = "Sample boolean switch."
+type = "boolean"
+control = "switch"
+default = true
+group = "Appearance"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "theme"
+title = "Theme"
+description = "Sample enum dropdown."
+type = "enum"
+control = "dropdown"
+default = "system"
+group = "Appearance"
+[[settings.options]]
+value = "system"
+[[settings.options]]
+value = "light"
+[[settings.options]]
+value = "dark"
+[settings.backend]
+kind = "mock"

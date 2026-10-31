@@ -1,18 +1,15 @@
 //! Main window: scope sidebar, settings content, search palette, apply bar.
-//! Structure follows 01_DESIGN_SYSTEM.md §4A. All content is mock data and
-//! labeled as such; states that need real providers render truthfully.
-//! Rendering reads owned snapshots from the core store; every intent goes
-//! through `AppState::dispatch` with a typed command.
+//! Structure follows 01_DESIGN_SYSTEM.md §4A. Since Phase 04 the content is
+//! **registry-driven**: every row and control comes from validated module
+//! manifests via the shared [`ControlSet`] factory — no setting id is
+//! hard-coded here. Rendering reads owned snapshots from the core store;
+//! every intent goes through `AppState::dispatch` with a typed command.
 
 use crate::app_state::ScanState;
-use gpui_kit::component::IndexPath;
 use gpui_kit::component::TitleBar;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::input::{Input, InputEvent, InputState, NumberInput};
-use gpui_kit::component::select::{SearchableVec, Select, SelectEvent, SelectState};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::sidebar::{Sidebar, SidebarMenu, SidebarMenuItem};
-use gpui_kit::component::slider::{Slider, SliderEvent, SliderState, SliderValue};
-use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{ActiveTheme as _, Disableable as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::component::{Icon, IconName, WindowExt as _};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -23,15 +20,15 @@ use gpui_kit::{
 use gpui_kit::{
     Focusable as _, InteractiveElement as _, IntoElement as _, StatefulInteractiveElement as _,
 };
-use licoman_core::descriptor::{ApplyMode, Control, Scope, SettingDescriptor};
+use licoman_core::descriptor::{Scope, SettingDescriptor};
 use licoman_core::error::ErrorKind;
 use licoman_core::state::SettingPhase;
-use licoman_core::value::SettingValue;
 use licoman_core::{Command, SettingModel, WindowRole};
 
 use crate::actions::*;
 use crate::app_state::{AppEvent, AppState, open_or_focus};
 use crate::theme::metrics;
+use crate::ui::setting_controls::ControlSet;
 use crate::ui::{OptionIntoAny as _, read_only_value, setting_row, settings_group, window_heading};
 use licoman_core::prefs::AppearanceMode;
 
@@ -42,36 +39,21 @@ struct Row {
     model: SettingModel,
 }
 
-impl Row {
-    fn editable(&self) -> bool {
-        self.descriptor.control != Control::ReadOnly
-            && self.descriptor.apply_mode == ApplyMode::Staged
-            && !self.model.phase.blocks_editing()
-    }
-
-    fn effective(&self) -> SettingValue {
-        self.model
-            .effective()
-            .cloned()
-            .unwrap_or(SettingValue::Text(String::new()))
-    }
-
-    fn display(&self) -> String {
-        self.effective().display()
-    }
-}
-
 pub struct MainWindow {
     app: Entity<AppState>,
     header_search: Entity<InputState>,
     palette_input: Entity<InputState>,
     palette_open: bool,
     palette_selected: usize,
-    volume_slider: Entity<SliderState>,
-    dns_input: Entity<InputState>,
-    downloads_input: Entity<InputState>,
-    dropdowns: Vec<(String, Entity<SelectState<SearchableVec<String>>>)>,
-    select_resync_needed: bool,
+    /// Registry-driven controls for every editable setting in the sidebar
+    /// scopes, keyed by stable setting id.
+    controls: ControlSet,
+    /// Set when the store changed; applied at the next render, where window
+    /// access is available for control re-sync.
+    resync_needed: bool,
+    /// Set when module applicability changed; the control set must be
+    /// rebuilt (rows that were unavailable can become editable).
+    rebuild_needed: bool,
     /// Set when the header search submits; applied at the next render, where
     /// window access is available.
     pending_palette_query: Option<String>,
@@ -86,143 +68,15 @@ impl MainWindow {
         let palette_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search all settings…"));
 
-        // One slider per slider-kind mock setting; the mock catalog has one.
-        let volume_slider = cx.new(|_| {
-            SliderState::new()
-                .min(0.)
-                .max(100.)
-                .step(1.)
-                .default_value(65.)
-        });
+        // One control set over every row in the sidebar scopes (Phase 04:
+        // the factory derives controls from descriptors, never from ids).
+        let mut all_rows: Vec<(SettingDescriptor, SettingModel)> = Vec::new();
+        for scope in Scope::SIDEBAR {
+            all_rows.extend(app.read(cx).store.scope_rows(scope));
+        }
+        let controls = ControlSet::build(&app, &all_rows, window, cx);
 
-        let dns_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Leave empty to keep system default")
-        });
-        let downloads_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("5")
-                .step(1.)
-                .min(0.)
-                .max(64.)
-                .default_value("5")
-        });
-
-        let mut dropdowns = Vec::new();
         let mut subscriptions = Vec::new();
-
-        let dropdown_specs: Vec<(String, Vec<String>, usize)> = app
-            .read(cx)
-            .store
-            .scope_rows(Scope::Shared)
-            .into_iter()
-            .chain(app.read(cx).store.scope_rows(Scope::Desktop))
-            .chain(app.read(cx).store.scope_rows(Scope::Distribution))
-            .filter(|(d, _)| matches!(d.control, Control::Choice { .. }))
-            .filter(|(_d, m)| !m.phase.blocks_editing())
-            .map(|(descriptor, model)| {
-                let Control::Choice { options } = descriptor.control.clone() else {
-                    unreachable!("filtered above");
-                };
-                let current = match model.effective() {
-                    Some(SettingValue::Choice(choice)) => {
-                        options.iter().position(|opt| opt == choice).unwrap_or(0)
-                    }
-                    _ => 0,
-                };
-                (descriptor.id.to_string(), options, current)
-            })
-            .collect();
-        for (id, options, current) in dropdown_specs {
-            let state = cx.new(|cx| {
-                SelectState::new(
-                    SearchableVec::new(options),
-                    Some(IndexPath::new(current)),
-                    window,
-                    cx,
-                )
-            });
-            dropdowns.push((id, state));
-        }
-
-        // Slider edits flow into the store as typed commands; the control
-        // itself never owns the committed value.
-        let app_for_slider = app.clone();
-        subscriptions.push(cx.subscribe(&volume_slider, {
-            move |_this, _slider, event: &SliderEvent, cx| {
-                if let SliderEvent::Change(SliderValue::Single(v)) = event {
-                    app_for_slider.update(cx, |state, cx| {
-                        state.dispatch(
-                            Command::Edit {
-                                id: "shared.audio.output_volume".into(),
-                                value: SettingValue::Float(*v as f64),
-                            },
-                            cx,
-                        );
-                    });
-                }
-            }
-        }));
-
-        let app_for_dns = app.clone();
-        subscriptions.push(cx.subscribe(&dns_input, {
-            move |_this, input, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    let value = input.read(cx).value().to_string();
-                    app_for_dns.update(cx, |state, cx| {
-                        state.dispatch(
-                            Command::Edit {
-                                id: "shared.network.dns".into(),
-                                value: SettingValue::Text(value),
-                            },
-                            cx,
-                        );
-                    });
-                }
-            }
-        }));
-
-        let app_for_downloads = app.clone();
-        subscriptions.push(cx.subscribe(&downloads_input, {
-            move |_this, input, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    let text = input.read(cx).value().to_string();
-                    if let Ok(n) = text.trim().parse::<i64>() {
-                        app_for_downloads.update(cx, |state, cx| {
-                            state.dispatch(
-                                Command::Edit {
-                                    id: "distro.packages.parallel_downloads".into(),
-                                    value: SettingValue::Integer(n),
-                                },
-                                cx,
-                            );
-                        });
-                    }
-                }
-            }
-        }));
-
-        // Select confirmations flow into the store.
-        for (id, state) in &dropdowns {
-            let id = id.clone();
-            let app_for_select = app.clone();
-            subscriptions.push(cx.subscribe(state, {
-                move |_this, _select, event: &SelectEvent<SearchableVec<String>>, cx| {
-                    if let SelectEvent::Confirm(Some(value)) = event {
-                        let value = value.clone();
-                        let id = id.clone();
-                        app_for_select.update(cx, |state, cx| {
-                            state.dispatch(
-                                Command::Edit {
-                                    id,
-                                    value: SettingValue::Choice(value),
-                                },
-                                cx,
-                            );
-                        });
-                    }
-                }
-            }));
-        }
 
         // The header search is the current-window entry into the global
         // search: pressing Enter opens the global palette with the query.
@@ -237,11 +91,17 @@ impl MainWindow {
         }));
 
         // Track app events: resync owned controls when the store changes
-        // (discard, apply) so controls never present a stale value.
+        // (discard, apply, module reload) so controls never present a stale
+        // value.
         subscriptions.push(cx.subscribe(&app, {
             move |this, _app, event: &AppEvent, cx| match event {
                 AppEvent::SettingsChanged => {
-                    this.select_resync_needed = true;
+                    this.resync_needed = true;
+                    cx.notify();
+                }
+                AppEvent::ModulesChanged => {
+                    this.rebuild_needed = true;
+                    this.resync_needed = false;
                     cx.notify();
                 }
                 AppEvent::PreferencesChanged | AppEvent::EnvironmentChanged => cx.notify(),
@@ -274,11 +134,9 @@ impl MainWindow {
             palette_input,
             palette_open: false,
             palette_selected: 0,
-            volume_slider,
-            dns_input,
-            downloads_input,
-            dropdowns,
-            select_resync_needed: false,
+            controls,
+            resync_needed: false,
+            rebuild_needed: false,
             pending_palette_query: None,
             _subscriptions: subscriptions,
             _appearance_sub: Some(appearance_sub),
@@ -289,74 +147,33 @@ impl MainWindow {
 
     /// Push store values into the controls that keep local display state
     /// (Select, Slider, Input) so the UI never shows a stale value after
-    /// discard/apply.
+    /// discard/apply/reload.
     fn sync_owned_controls(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_resync_needed = false;
-
-        for (id, select) in &self.dropdowns {
-            let current: Option<String> = {
-                let store = &self.app.read(cx).store;
-                match store.effective_value(id) {
-                    Some(SettingValue::Choice(choice)) => Some(choice),
-                    _ => None,
-                }
-            };
-            if let Some(current) = current {
-                select.update(cx, |state, cx| {
-                    state.set_selected_value(&current, window, cx);
-                });
-            }
+        self.resync_needed = false;
+        let mut all_rows: Vec<(SettingDescriptor, SettingModel)> = Vec::new();
+        for scope in Scope::SIDEBAR {
+            all_rows.extend(self.app.read(cx).store.scope_rows(scope));
         }
+        self.controls.sync(&all_rows, window, cx);
+    }
 
-        let volume = {
-            let store = &self.app.read(cx).store;
-            match store.effective_value("shared.audio.output_volume") {
-                Some(SettingValue::Float(n)) => Some(n as f32),
-                _ => None,
-            }
-        };
-        if let Some(v) = volume {
-            self.volume_slider.update(cx, |s, cx| {
-                s.set_value(v, window, cx);
-            });
+    /// Rebuild the control set after module applicability changed (rows
+    /// that were unavailable at build time can now be editable).
+    fn rebuild_controls(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.rebuild_needed = false;
+        let mut all_rows: Vec<(SettingDescriptor, SettingModel)> = Vec::new();
+        for scope in Scope::SIDEBAR {
+            all_rows.extend(self.app.read(cx).store.scope_rows(scope));
         }
-
-        let downloads = {
-            let store = &self.app.read(cx).store;
-            match store.effective_value("distro.packages.parallel_downloads") {
-                Some(SettingValue::Integer(n)) => Some(n.to_string()),
-                _ => None,
-            }
-        };
-        if let Some(text) = downloads
-            && self.downloads_input.read(cx).value() != text.as_str()
-        {
-            self.downloads_input.update(cx, |s, cx| {
-                s.set_value(text.clone(), window, cx);
-            });
-        }
-
-        let dns = {
-            let store = &self.app.read(cx).store;
-            match store.effective_value("shared.network.dns") {
-                Some(SettingValue::Text(t)) => Some(t),
-                _ => None,
-            }
-        };
-        if let Some(text) = dns
-            && self.dns_input.read(cx).value() != text.as_str()
-        {
-            self.dns_input.update(cx, |s, cx| {
-                s.set_value(text.clone(), window, cx);
-            });
-        }
+        self.controls.rebuild(&self.app, &all_rows, window, cx);
     }
 
     /// Visual-verification hook (`LICOMAN_DEMO=palette`): opens the palette
     /// without pointer/keyboard interaction.
-    pub fn demo_open_palette(&mut self) {
+    pub fn demo_open_palette(&mut self, cx: &mut Context<Self>) {
         self.palette_open = true;
         self.palette_selected = 0;
+        cx.notify();
     }
 
     fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -386,10 +203,25 @@ impl MainWindow {
             .get(self.palette_selected.min(results.len().saturating_sub(1)))
             .cloned();
         if let Some(hit) = picked {
-            self.app.update(cx, |state, cx| {
-                state.dispatch(Command::SelectScope(hit.scope), cx);
-                state.push_history(WindowRole::Main, format!("scope:{}", hit.scope.label()), cx);
-            });
+            if hit.scope == Scope::Application {
+                // Application settings navigate into the Applications window
+                // (00_START_HERE.md IA); selection is by stable identity.
+                let module_id = hit.module_id.clone();
+                self.app.update(cx, |state, cx| {
+                    let identity = state.select_identity_for_module(&module_id);
+                    state.dispatch(Command::SelectApp { id: identity }, cx);
+                });
+                self.open_applications_window(cx);
+            } else {
+                self.app.update(cx, |state, cx| {
+                    state.dispatch(Command::SelectScope(hit.scope), cx);
+                    state.push_history(
+                        WindowRole::Main,
+                        format!("scope:{}", hit.scope.label()),
+                        cx,
+                    );
+                });
+            }
         }
         self.palette_open = false;
         cx.notify();
@@ -409,8 +241,8 @@ impl MainWindow {
         let status = self.render_status(row, cx);
         setting_row(
             SharedString::from(format!("setting-row-{index}")),
-            row.descriptor.label,
-            row.descriptor.description,
+            row.descriptor.label.clone(),
+            row.descriptor.description.clone(),
             control,
             status,
             &theme,
@@ -425,7 +257,6 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme().clone();
-        let id = row.descriptor.id.to_string();
         let unavailable_display = match &row.model.error {
             Some(error) if error.kind == ErrorKind::Permission => "Not available",
             _ => "Unavailable",
@@ -436,103 +267,13 @@ impl MainWindow {
             return read_only_value(unavailable_display, &theme).into_any_element();
         }
 
-        match &row.descriptor.control {
-            Control::Switch => {
-                let checked = row.effective() == SettingValue::Bool(true);
-                Switch::new(row.descriptor.id)
-                    .checked(checked)
-                    .disabled(!row.editable())
-                    .on_click(cx.listener(move |this, checked: &bool, _window, cx| {
-                        let value = SettingValue::Bool(*checked);
-                        this.app.update(cx, |state, cx| {
-                            state.dispatch(
-                                Command::Edit {
-                                    id: id.clone(),
-                                    value,
-                                },
-                                cx,
-                            );
-                        });
-                    }))
-                    .into_any_element()
-            }
-            Control::Choice { .. } => {
-                if !row.editable() {
-                    return read_only_value(row.display(), &theme).into_any_element();
-                }
-                let state = self
-                    .dropdowns
-                    .iter()
-                    .find(|(dropdown_id, _)| *dropdown_id == id)
-                    .map(|(_, state)| state.clone());
-                match state {
-                    Some(state) => Select::new(&state)
-                        .id(row.descriptor.id)
-                        .menu_width(px(200.))
-                        .into_any_element(),
-                    None => read_only_value(row.display(), &theme).into_any_element(),
-                }
-            }
-            Control::Slider { unit, .. } => {
-                if !row.editable() {
-                    return read_only_value(format!("{}{unit}", row.display()), &theme)
-                        .into_any_element();
-                }
-                let value = match row.effective() {
-                    SettingValue::Float(n) => n,
-                    _ => 0.,
-                };
-                h_flex()
-                    .w_full()
-                    .gap_2()
-                    .items_center()
-                    .child(Slider::new(&self.volume_slider).flex_1())
-                    .child(
-                        div()
-                            .w(px(44.))
-                            .text_size(px(metrics::TEXT_BODY))
-                            .text_color(theme.foreground)
-                            .child(format!("{value}{unit}")),
-                    )
-                    .into_any_element()
-            }
-            Control::Number { unit, .. } => {
-                if !row.editable() {
-                    return read_only_value(
-                        if unit.is_empty() {
-                            row.display()
-                        } else {
-                            format!("{} {unit}", row.display())
-                        },
-                        &theme,
-                    )
-                    .into_any_element();
-                }
-                NumberInput::new(&self.downloads_input)
-                    .w(px(120.))
-                    .into_any_element()
-            }
-            Control::Text { .. } => {
-                if !row.editable() {
-                    return read_only_value(row.display(), &theme).into_any_element();
-                }
-                Input::new(&self.dns_input)
-                    .id(row.descriptor.id)
-                    .w(px(220.))
-                    .into_any_element()
-            }
-            Control::Path | Control::List => {
-                // No mock fixture exercises path/list yet; render the typed
-                // value read-only until the file backends arrive (Phase 05).
-                read_only_value(row.display(), &theme).into_any_element()
-            }
-            Control::ReadOnly => read_only_value(row.display(), &theme).into_any_element(),
-        }
+        self.controls
+            .render(&row.descriptor, &row.model, &self.app, &theme)
     }
 
     fn render_status(&mut self, row: &Row, cx: &mut Context<Self>) -> Option<AnyElement> {
         let theme = cx.theme().clone();
-        let id = row.descriptor.id.to_string();
+        let id = row.descriptor.id.clone();
         match &row.model.phase {
             SettingPhase::Unknown => Some(
                 div()
@@ -592,13 +333,15 @@ impl MainWindow {
             SettingPhase::Idle => {
                 // Static provider notes (why a row is read-only) and known
                 // restart requirements are truthful status lines.
-                if let Some(note) = row.descriptor.note {
-                    return Some(div().text_color(theme.muted_foreground).child(note)).into_any();
+                if let Some(note) = &row.descriptor.note {
+                    return Some(div().text_color(theme.muted_foreground).child(note.clone()))
+                        .into_any();
                 }
                 if let Some(target) = row
                     .descriptor
                     .restart_target
-                    .or(model_restart_target(&row.model))
+                    .clone()
+                    .or_else(|| model_restart_target(&row.model))
                 {
                     return Some(
                         h_flex()
@@ -649,7 +392,8 @@ impl MainWindow {
                             "Saved — applies after restarting {}",
                             row.descriptor
                                 .restart_target
-                                .unwrap_or("the affected program")
+                                .clone()
+                                .unwrap_or_else(|| "the affected program".to_string())
                         )
                     } else {
                         "Saved".to_string()
@@ -930,16 +674,20 @@ impl MainWindow {
                         content.child(
                             h_flex()
                                 .gap_2()
+                                .items_center()
                                 .child(
                                     gpui_kit::component::tag::Tag::secondary()
                                         .small()
-                                        .child("Mock data"),
+                                        .child("Mock values"),
                                 )
                                 .child(
                                     div()
                                         .text_size(px(metrics::TEXT_META))
                                         .text_color(theme.muted_foreground)
-                                        .child("All values below are samples for design review."),
+                                        .child(
+                                            "Rows come from built-in module manifests; mock-backed \
+                                             values are samples. Real-backend rows stay read-only.",
+                                        ),
                                 ),
                         )
                     })
@@ -1059,6 +807,14 @@ impl MainWindow {
             .map(|(i, hit)| {
                 let label = hit.label.clone();
                 let breadcrumb = hit.breadcrumb.clone();
+                // Apply status next to the breadcrumb (04 §6): the row's
+                // current phase, looked up by stable id.
+                let status = {
+                    let store = &self.app.read(cx).store;
+                    store
+                        .model(&hit.id)
+                        .and_then(crate::ui::setting_controls::phase_status_text)
+                };
                 let is_selected = i == selected;
                 div()
                     .id(SharedString::from(format!("palette-result-{i}")))
@@ -1075,11 +831,19 @@ impl MainWindow {
                         v_flex()
                             .gap_0p5()
                             .child(
-                                div()
-                                    .text_size(px(metrics::TEXT_LABEL))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(theme.foreground)
-                                    .child(label),
+                                h_flex()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .text_size(px(metrics::TEXT_LABEL))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(theme.foreground)
+                                            .child(label),
+                                    )
+                                    .children(status.map(|text| {
+                                        gpui_kit::component::tag::Tag::warning().small().child(text)
+                                    })),
                             )
                             .child(
                                 div()
@@ -1169,9 +933,9 @@ impl MainWindow {
                                             .text_size(px(metrics::TEXT_BODY))
                                             .text_color(theme.muted_foreground)
                                             .child(if query_is_empty {
-                                                "Type to search across every sample setting; results show scope → category → setting."
+                                                "Type to search across every registered setting; results show scope → category → setting."
                                             } else {
-                                                "Try a different search. Sample settings cover Shared, Desktop and Distribution."
+                                                "Try a different search. Built-in modules cover Shared, Desktop, Distribution and Applications."
                                             }),
                                     ),
                             )
@@ -1201,11 +965,9 @@ impl MainWindow {
     }
 }
 
-fn model_restart_target(model: &SettingModel) -> Option<&'static str> {
+fn model_restart_target(model: &SettingModel) -> Option<String> {
     if model.restart_required {
-        // The dynamic flag carries no target of its own in the mock; the
-        // descriptor target is rendered when present.
-        Some("the affected program")
+        Some("the affected program".to_string())
     } else {
         None
     }
@@ -1235,7 +997,9 @@ impl Render for MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl gpui_kit::IntoElement {
-        if self.select_resync_needed {
+        if self.rebuild_needed {
+            self.rebuild_controls(window, cx);
+        } else if self.resync_needed {
             self.sync_owned_controls(window, cx);
         }
         if let Some(query) = self.pending_palette_query.take() {

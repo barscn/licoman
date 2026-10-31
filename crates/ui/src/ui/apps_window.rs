@@ -1,36 +1,36 @@
-//! Applications window (03_ENVIRONMENT_DISCOVERY.md UI details): discovered
-//! applications merged with the registered mock modules. Two views —
-//! **Supported** (module-backed) and **All installed** (everything
-//! discovered). Unknown apps show the honest "No Licoman integration
-//! available yet." message and never fake settings. Discovery runs off the
-//! UI thread; this window renders loading/partial states and a Refresh
-//! action.
+//! Applications window (03_ENVIRONMENT_DISCOVERY.md UI details, registry-
+//! driven since Phase 04): discovered applications merged with registered
+//! application modules from the module registry. Two views — **Supported**
+//! (module-backed) and **All installed** (everything discovered). Detail
+//! panels are built from the module's settings through the shared
+//! [`ControlSet`] factory; "Source details" shows recorded provenance.
+//! Unknown apps show the honest "No Licoman integration available yet."
+//! message and never fake settings.
 
 use gpui_kit::component::TitleBar;
 use gpui_kit::component::button::Button;
-use gpui_kit::component::input::{Input, InputEvent, InputState, NumberInput};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::slider::{Slider, SliderEvent, SliderState, SliderValue};
-use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::component::{Icon, IconName, WindowExt as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AppContext as _, Context, Entity, FontWeight, ParentElement as _, Render, SharedString, Styled,
-    Subscription, Window, div, px,
+    AnyElement, AppContext as _, Context, Entity, FontWeight, ParentElement as _, Render,
+    SharedString, Styled, Subscription, Window, div, px,
 };
 use gpui_kit::{
     Focusable as _, InteractiveElement as _, IntoElement as _, StatefulInteractiveElement as _,
 };
+use licoman_core::descriptor::SettingDescriptor;
 use licoman_core::discovery::AppListEntry;
-use licoman_core::mock::Support;
 use licoman_core::prefs::AppearanceMode;
-use licoman_core::{Command, WindowRole};
+use licoman_core::{Command, SettingModel, WindowRole};
 
 use crate::actions::*;
 use crate::app_state::{AppEvent, AppState, ScanState, open_or_focus};
 use crate::theme::metrics;
-use crate::ui::{OptionIntoAny as _, settings_group, support_tag};
+use crate::ui::setting_controls::{ControlSet, phase_status_text};
+use crate::ui::{OptionIntoAny as _, setting_row, support_tag};
 
 /// The exact honesty message required by the plan.
 const NO_INTEGRATION: &str = "No Licoman integration available yet.";
@@ -40,10 +40,14 @@ pub struct AppsWindow {
     filter: Entity<InputState>,
     /// `false` = Supported (module-backed), `true` = All installed.
     show_all: bool,
-    font_size: Entity<InputState>,
-    opacity: Entity<SliderState>,
-    cursor_blink: bool,
     selected_tab: usize,
+    /// Registry-driven controls for every application-scope setting.
+    controls: ControlSet,
+    /// Set when the store changed; applied at the next render, where window
+    /// access is available for control re-sync.
+    resync_needed: bool,
+    /// Set when module applicability changed; rebuild, don't just sync.
+    rebuild_needed: bool,
     _subscriptions: Vec<Subscription>,
     _appearance_sub: Option<Subscription>,
 }
@@ -51,39 +55,18 @@ pub struct AppsWindow {
 impl AppsWindow {
     pub fn new(app: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter apps…"));
-        let font_size = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("13")
-                .step(0.5)
-                .min(6.)
-                .max(32.)
-                .default_value("13")
-        });
-        let opacity = cx.new(|_| {
-            SliderState::new()
-                .min(30.)
-                .max(100.)
-                .step(5.)
-                .default_value(95.)
-        });
+
+        // Controls for every application-scope setting (all app modules);
+        // the detail pane renders the subset of the selected module.
+        let mut app_rows: Vec<(SettingDescriptor, SettingModel)> = Vec::new();
+        {
+            let store = &app.read(cx).store;
+            let scope = licoman_core::descriptor::Scope::Application;
+            app_rows.extend(store.scope_rows(scope));
+        }
+        let controls = ControlSet::build(&app, &app_rows, window, cx);
 
         let mut subscriptions = Vec::new();
-        let opacity_for_event = opacity.clone();
-        subscriptions.push(cx.subscribe(&opacity, {
-            move |_this, _slider, event: &SliderEvent, cx| {
-                if let SliderEvent::Change(SliderValue::Single(v)) = event {
-                    let _ = v;
-                    cx.notify();
-                }
-            }
-        }));
-        subscriptions.push(cx.subscribe(&font_size, {
-            move |_this, _input, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    cx.notify();
-                }
-            }
-        }));
         subscriptions.push(cx.subscribe(&filter, {
             move |_this, _input, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change | InputEvent::PressEnter { .. }) {
@@ -94,7 +77,16 @@ impl AppsWindow {
         subscriptions.push(cx.subscribe(&app, {
             move |this, _app, event: &AppEvent, cx| {
                 match event {
-                    AppEvent::PreferencesChanged | AppEvent::SettingsChanged => cx.notify(),
+                    AppEvent::PreferencesChanged => cx.notify(),
+                    AppEvent::SettingsChanged => {
+                        this.resync_needed = true;
+                        cx.notify();
+                    }
+                    AppEvent::ModulesChanged => {
+                        this.rebuild_needed = true;
+                        this.resync_needed = false;
+                        cx.notify();
+                    }
                     AppEvent::EnvironmentChanged => {
                         // Default selection: the first supported entry once a
                         // scan has produced one. Stable id, not an index.
@@ -140,13 +132,37 @@ impl AppsWindow {
             app,
             filter,
             show_all: false,
-            font_size,
-            opacity: opacity_for_event,
-            cursor_blink: true,
             selected_tab: 0,
+            controls,
+            resync_needed: false,
+            rebuild_needed: false,
             _subscriptions: subscriptions,
             _appearance_sub: Some(appearance_sub),
         }
+    }
+
+    /// Push store values into owned controls after store changes.
+    fn resync_controls(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.resync_needed = false;
+        let mut app_rows: Vec<(SettingDescriptor, SettingModel)> = Vec::new();
+        {
+            let store = &self.app.read(cx).store;
+            let scope = licoman_core::descriptor::Scope::Application;
+            app_rows.extend(store.scope_rows(scope));
+        }
+        self.controls.sync(&app_rows, window, cx);
+    }
+
+    /// Rebuild the control set after module applicability changed.
+    fn rebuild_controls(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.rebuild_needed = false;
+        let mut app_rows: Vec<(SettingDescriptor, SettingModel)> = Vec::new();
+        {
+            let store = &self.app.read(cx).store;
+            let scope = licoman_core::descriptor::Scope::Application;
+            app_rows.extend(store.scope_rows(scope));
+        }
+        self.controls.rebuild(&self.app, &app_rows, window, cx);
     }
 
     /// The merged list narrowed by the current view and the text filter.
@@ -351,6 +367,8 @@ impl AppsWindow {
             .find(|entry| entry.identity == selected)
             .cloned()
         else {
+            // Removed mid-session: graceful fallback, no stale UI state, no
+            // panic (04_MODULE_SCHEMA_AND_REGISTRY.md §4).
             return v_flex()
                 .flex_1()
                 .items_center()
@@ -363,17 +381,47 @@ impl AppsWindow {
                 .into_any_element();
         };
 
-        match (entry.module, entry.app.clone()) {
-            // Registered module + installed app: sample controls, honestly
-            // labeled, with discovered facts attached.
+        match (entry.module.clone(), entry.app.clone()) {
+            // Registered module + installed app: registry-driven rows.
             (Some(module_id), Some(app)) => {
-                self.render_module_detail(entry, module_id, Some(&app), cx)
+                self.render_module_detail(entry, &module_id, Some(&app), cx)
             }
             // Module row without an installed app.
-            (Some(module_id), None) => self.render_not_installed_detail(entry, module_id, cx),
+            (Some(module_id), None) => self.render_not_installed_detail(entry, &module_id, cx),
             // Discovered but no module: the honest message and facts only.
             (None, _) => self.render_unsupported_detail(entry, cx),
         }
+    }
+
+    /// Grouped rows for one module: settings ordered as registered, grouped
+    /// by their declared group/tab name.
+    fn module_groups(
+        &self,
+        module_id: &str,
+        cx: &Context<Self>,
+    ) -> Vec<(String, Vec<(SettingDescriptor, SettingModel)>)> {
+        let (ids, groups) = self
+            .app
+            .read(cx)
+            .module_provider()
+            .with_registry(|registry| {
+                let ids = registry.setting_ids_of_module(module_id);
+                let groups: Vec<String> = ids
+                    .iter()
+                    .filter_map(|id| registry.setting(id))
+                    .map(|(def, setting)| def.setting_group(setting))
+                    .collect();
+                (ids, groups)
+            });
+        let rows = self.app.read(cx).store.rows_for_ids(&ids);
+        let mut grouped: Vec<(String, Vec<(SettingDescriptor, SettingModel)>)> = Vec::new();
+        for (group, row) in groups.into_iter().zip(rows) {
+            match grouped.last_mut() {
+                Some((current, rows)) if *current == group => rows.push(row),
+                _ => grouped.push((group, vec![row])),
+            }
+        }
+        grouped
     }
 
     fn render_module_detail(
@@ -384,40 +432,28 @@ impl AppsWindow {
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
         let theme = cx.theme().clone();
-        let catalog = licoman_core::mock::APPS_CATALOG
-            .iter()
-            .find(|m| m.id == module_id);
-        let (title, description, source, categories) = match (app, catalog) {
-            (Some(app), Some(module)) => (
-                app.name.clone(),
-                app.comment
-                    .clone()
-                    .unwrap_or_else(|| module.description.to_string()),
-                redacted_source(app),
-                module.categories,
-            ),
-            (_, Some(module)) => (
-                module.name.to_string(),
-                module.description.to_string(),
-                module.source.to_string(),
-                module.categories,
-            ),
-            (Some(app), None) => (
-                app.name.clone(),
-                app.comment.clone().unwrap_or_default(),
-                redacted_source(app),
-                &[] as &'static [(&'static str, &'static str)],
-            ),
-            (None, None) => (
-                entry.display_name.clone(),
-                String::new(),
-                String::new(),
-                &[] as &'static [(&'static str, &'static str)],
-            ),
+        let (title, description, provenance) =
+            self.app
+                .read(cx)
+                .module_provider()
+                .with_registry(|registry| match registry.module(module_id) {
+                    Some(module) => (
+                        module.def.title.clone(),
+                        module.def.description.clone(),
+                        registry.provenance_of(module_id),
+                    ),
+                    None => (entry.display_name.clone(), String::new(), Vec::new()),
+                });
+        let display_title = app
+            .map(|app| app.name.clone())
+            .unwrap_or_else(|| title.clone());
+        let description = match app {
+            Some(app) => app.comment.clone().unwrap_or_else(|| description.clone()),
+            None => description.clone(),
         };
 
-        let tabs = categories;
-        if self.selected_tab >= tabs.len() {
+        let groups = self.module_groups(module_id, cx);
+        if self.selected_tab >= groups.len() {
             self.selected_tab = 0;
         }
 
@@ -430,7 +466,7 @@ impl AppsWindow {
                         .text_size(px(metrics::TEXT_PAGE_HEADING))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme.foreground)
-                        .child(title),
+                        .child(display_title),
                 )
                 .child(support_tag(entry.support)),
         );
@@ -460,12 +496,13 @@ impl AppsWindow {
             );
         }
 
-        // Tab bar (custom pills; gpui-kit tabs are heavier than needed here).
+        // Tab bar: one pill per declared settings group.
         let tab_bar = h_flex()
             .gap_1()
             .flex_wrap()
-            .children(tabs.iter().enumerate().map(|(i, (name, _))| {
+            .children(groups.iter().enumerate().map(|(i, (name, _))| {
                 let is_active = i == self.selected_tab;
+                let name = name.clone();
                 div()
                     .id(SharedString::from(format!("tab-{}-{i}", entry.identity)))
                     .px_3()
@@ -485,11 +522,12 @@ impl AppsWindow {
                             cx.notify();
                         }),
                     )
-                    .child(*name)
+                    .child(name)
             }));
 
-        let body: gpui_kit::AnyElement = match entry.support {
-            Support::Unsupported => v_flex()
+        // The selected group's rows, registry-driven through the ControlSet.
+        let body: gpui_kit::AnyElement = match groups.get(self.selected_tab) {
+            None => v_flex()
                 .gap_2()
                 .pt_4()
                 .child(
@@ -500,55 +538,94 @@ impl AppsWindow {
                         .child(NO_INTEGRATION),
                 )
                 .into_any_element(),
-            Support::Partial => {
-                let tab_description = tabs.get(self.selected_tab).map(|(_, d)| *d).unwrap_or("");
-                let source = source.clone();
-                let rows = vec![
-                    self.render_generic_row_font_size(cx),
-                    self.render_config_source_row(source, cx),
-                ];
+            Some((group_name, rows)) => {
+                let rendered: Vec<AnyElement> = rows
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (descriptor, model))| {
+                        let control = self.controls.render(descriptor, model, &self.app, &theme);
+                        let status = phase_status_text(model).map(|text| {
+                            div()
+                                .text_color(
+                                    if model.phase == licoman_core::SettingPhase::Failed
+                                        || model.phase
+                                            == licoman_core::SettingPhase::ExternalConflict
+                                    {
+                                        theme.warning
+                                    } else {
+                                        theme.muted_foreground
+                                    },
+                                )
+                                .child(text)
+                        });
+                        setting_row(
+                            SharedString::from(format!("app-setting-{index}")),
+                            descriptor.label.clone(),
+                            descriptor.description.clone(),
+                            control,
+                            status.into_any(),
+                            &theme,
+                        )
+                        .into_any_element()
+                    })
+                    .collect();
                 v_flex()
                     .gap_6()
                     .pt_4()
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(Icon::new(IconName::Info).small().text_color(theme.info))
-                            .child(
-                                div()
-                                    .text_size(px(metrics::TEXT_BODY))
-                                    .text_color(theme.muted_foreground)
-                                    .child("Partial support — a subset of options is available."),
-                            ),
-                    )
-                    .child(settings_group(tabs[self.selected_tab].0, rows, &theme))
-                    .child(
-                        div()
-                            .text_size(px(metrics::TEXT_META))
-                            .text_color(theme.muted_foreground)
-                            .child(tab_description),
-                    )
-                    .into_any_element()
-            }
-            Support::Supported => {
-                let source = source.clone();
-                let rows = vec![
-                    self.render_generic_row_font_size(cx),
-                    self.render_opacity_row(cx),
-                    self.render_cursor_blink_row(cx),
-                    self.render_config_source_row(source, cx),
-                ];
-                v_flex()
-                    .gap_6()
-                    .pt_4()
-                    .child(settings_group(
-                        tabs.get(self.selected_tab)
-                            .map(|(n, _)| *n)
-                            .unwrap_or("Settings"),
-                        rows,
-                        &theme,
-                    ))
+                    .child(crate::ui::settings_group(group_name.clone(), rendered, &theme))
+                    .child({
+                        let provenance = provenance.clone();
+                        let module_title = title.clone();
+                        h_flex().gap_2().child(
+                            Button::new("source-details")
+                                .label("Source details…")
+                                .outline()
+                                .small()
+                                .on_click(cx.listener(move |_this, _: &gpui_kit::ClickEvent, window, cx| {
+                                    let provenance = provenance.clone();
+                                    let module_title = module_title.clone();
+                                    window.open_dialog(cx, move |dialog, _window, cx| {
+                                        let mut panel = v_flex().gap_2().child(
+                                            div()
+                                                .text_size(px(metrics::TEXT_BODY))
+                                                .text_color(cx.theme().foreground)
+                                                .child(format!(
+                                                    "Module {module_title} — recorded provenance"
+                                                )),
+                                        );
+                                        if provenance.is_empty() {
+                                            panel = panel.child(
+                                                div()
+                                                    .text_size(px(metrics::TEXT_META))
+                                                    .text_color(cx.theme().muted_foreground)
+                                                    .child(
+                                                        "Mock values only — no external backend binding.",
+                                                    ),
+                                            );
+                                        }
+                                        for line in provenance.clone() {
+                                            panel = panel.child(
+                                                div()
+                                                    .font_family("monospace")
+                                                    .text_size(px(metrics::TEXT_META))
+                                                    .child(line),
+                                            );
+                                        }
+                                        panel = panel.child(
+                                            div()
+                                                .text_size(px(metrics::TEXT_META))
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(
+                                                    "Bindings are validated declaratively; reads arrive \
+                                                     with Phase 05 and writes are gated behind the \
+                                                     safe write engine (Phase 06).",
+                                                ),
+                                        );
+                                        dialog.title("Source details").keyboard(true).child(panel)
+                                    });
+                                })),
+                        )
+                    })
                     .into_any_element()
             }
         };
@@ -564,7 +641,7 @@ impl AppsWindow {
                 metrics::CONTENT_MAX_WIDTH + metrics::CONTENT_PADDING * 2.
             ))
             .child(header)
-            .when(tabs.len() > 1, |detail| detail.child(tab_bar))
+            .when(groups.len() > 1, |detail| detail.child(tab_bar))
             .child(body)
             .into_any_element()
     }
@@ -652,9 +729,14 @@ impl AppsWindow {
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
         let theme = cx.theme().clone();
-        let module = licoman_core::mock::APPS_CATALOG
-            .iter()
-            .find(|m| m.id == module_id);
+        let (title, description) = self
+            .app
+            .read(cx)
+            .module_provider()
+            .with_registry(|registry| match registry.module(module_id) {
+                Some(module) => (module.def.title.clone(), module.def.description.clone()),
+                None => (entry.display_name.clone(), String::new()),
+            });
         v_flex()
             .flex_1()
             .items_center()
@@ -665,137 +747,29 @@ impl AppsWindow {
                     .text_size(px(metrics::TEXT_PAGE_HEADING))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme.foreground)
-                    .child(entry.display_name.clone()),
+                    .child(title),
             )
             .child(support_tag(entry.support))
             .child(
                 div()
                     .text_size(px(metrics::TEXT_BODY))
                     .text_color(theme.muted_foreground)
-                    .child(format!(
-                        "Licoman has a {} module registered, but the application was not \
-                         detected on this system.",
-                        module.map(|m| m.name).unwrap_or(module_id)
-                    )),
+                    .max_w(px(metrics::CONTENT_MAX_WIDTH))
+                    .child(if description.is_empty() {
+                        "Licoman has a module registered, but the application was not detected \
+                         on this system."
+                            .to_string()
+                    } else {
+                        description
+                    }),
             )
             .into_any_element()
     }
 
-    fn render_generic_row_font_size(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        let theme = cx.theme().clone();
-        crate::ui::setting_row(
-            "app-font-size",
-            "Font size",
-            "Sample control: editor font size for this application.",
-            NumberInput::new(&self.font_size)
-                .w(px(120.))
-                .into_any_element(),
-            Some(
-                div()
-                    .text_color(theme.muted_foreground)
-                    .child("Mock value; not persisted in this phase."),
-            )
-            .into_any(),
-            &theme,
-        )
-        .into_any_element()
-    }
-
-    fn render_opacity_row(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        let theme = cx.theme().clone();
-        let value = match self.opacity.read(cx).value() {
-            SliderValue::Single(v) => v,
-            SliderValue::Range(a, _) => a,
-        };
-        crate::ui::setting_row(
-            "app-opacity",
-            "Opacity",
-            "Sample control: window opacity for this application.",
-            h_flex()
-                .w_full()
-                .gap_2()
-                .items_center()
-                .child(Slider::new(&self.opacity).flex_1())
-                .child(
-                    div()
-                        .w(px(44.))
-                        .text_size(px(metrics::TEXT_BODY))
-                        .text_color(theme.foreground)
-                        .child(format!("{value:.0}%")),
-                )
-                .into_any_element(),
-            None,
-            &theme,
-        )
-        .into_any_element()
-    }
-
-    fn render_cursor_blink_row(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        let theme = cx.theme().clone();
-        let checked = self.cursor_blink;
-        crate::ui::setting_row(
-            "app-cursor-blink",
-            "Cursor blink",
-            "Sample control: whether the terminal cursor blinks.",
-            Switch::new("app-cursor-blink-switch")
-                .checked(checked)
-                .on_click(cx.listener(|this, checked: &bool, _window, cx| {
-                    this.cursor_blink = *checked;
-                    cx.notify();
-                }))
-                .into_any_element(),
-            None,
-            &theme,
-        )
-        .into_any_element()
-    }
-
-    fn render_config_source_row(
-        &mut self,
-        source: String,
-        cx: &mut Context<Self>,
-    ) -> gpui_kit::AnyElement {
-        let theme = cx.theme().clone();
-        crate::ui::setting_row(
-            "app-config-source",
-            "Configuration source",
-            "The location this application's settings live in, as discovered. Licoman treats the source as authoritative.",
-            Button::new("source-details")
-                .label("Details…")
-                .outline()
-                .small()
-                .on_click(cx.listener(move |_this, _: &gpui_kit::ClickEvent, window, cx| {
-                    let source = source.clone();
-                    window.open_dialog(cx, move |dialog, _window, _cx| {
-                        dialog
-                            .title("Configuration source")
-                            .keyboard(true)
-                            .child(
-                                v_flex()
-                                    .gap_2()
-                                    .child(
-                                        div()
-                                            .font_family("monospace")
-                                            .text_size(px(metrics::TEXT_META))
-                                            .child(source.clone()),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(px(metrics::TEXT_META))
-                                            .text_color(_cx.theme().muted_foreground)
-                                            .child(
-                                                "Discovered location. Reading it arrives with \
-                                                 the Phase 05 read backends.",
-                                            ),
-                                    ),
-                            )
-                    });
-                }))
-                .into_any_element(),
-            None,
-            &theme,
-        )
-        .into_any_element()
+    /// Visual-verification hook (`LICOMAN_DEMO=all-apps`): open the window
+    /// directly in the "All installed" view.
+    pub fn demo_show_all(&mut self) {
+        self.show_all = true;
     }
 }
 
@@ -809,10 +783,6 @@ fn row_subtitle(entry: &AppListEntry) -> String {
             .unwrap_or_else(|| format!("Installed via {}", app.origin.label())),
         None => "Module registered; application not detected".to_string(),
     }
-}
-
-fn redacted_source(app: &licoman_core::discovery::InstalledApp) -> String {
-    app.source_path.display().to_string()
 }
 
 fn fact_row(
@@ -865,20 +835,17 @@ fn view_pill(
         .into_any_element()
 }
 
-impl AppsWindow {
-    /// Visual-verification hook (`LICOMAN_DEMO=all-apps`): open the window
-    /// directly in the "All installed" view.
-    pub fn demo_show_all(&mut self) {
-        self.show_all = true;
-    }
-}
-
 impl Render for AppsWindow {
     fn render(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl gpui_kit::IntoElement {
+        if self.rebuild_needed {
+            self.rebuild_controls(window, cx);
+        } else if self.resync_needed {
+            self.resync_controls(window, cx);
+        }
         let theme = cx.theme().clone();
         let (subtitle, refreshing) = {
             let state = self.app.read(cx);

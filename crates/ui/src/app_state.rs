@@ -3,14 +3,11 @@
 //! apply interval, applies Licoman themes to every window, and models
 //! single-instance window behavior with independent navigation histories.
 //!
-//! Phase 03 adds [`EnvironmentState`]: the discovery cache. Discovery runs
-//! stage by stage on the background executor (the UI thread never blocks),
-//! publishes partial snapshots after every stage, and is cancellable —
-//! `Refresh` cancels the in-flight scan and starts a new one. The cache holds
-//! safe metadata only; it is invalidated by explicit Refresh and by the
-//! debounced filesystem watcher (`environment_watch`), never pretending that
-//! cached *setting values* are fresh (those contracts arrive with real
-//! backends in Phase 05).
+//! Phase 04 adds the module-registry handle: applicability is recomputed
+//! whenever a discovery snapshot is ingested (staged discovery, demo fixture
+//! or refresh), and the store reloads **only when the set of available
+//! settings actually changed** — preserving navigation and staged edits
+//! otherwise (04_MODULE_SCHEMA_AND_REGISTRY.md §6).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,6 +19,7 @@ use licoman_core::discovery::{
     AppListEntry, DiscoveryRun, DiscoverySources, EnvironmentSnapshot, ScanControl, ScanStage,
     ScanStatus, build_app_list,
 };
+use licoman_core::modules::ModuleProvider;
 use licoman_core::prefs::AppearanceMode;
 use licoman_core::window_sessions::{OpenDecision, WindowSessions};
 use licoman_core::{Command, SettingPhase, Store, WindowRole};
@@ -34,6 +32,8 @@ pub enum AppEvent {
     PreferencesChanged,
     /// Environment discovery progressed (loading, partial or ready).
     EnvironmentChanged,
+    /// Module applicability changed (a reload published new availability).
+    ModulesChanged,
 }
 
 /// Where the discovery cache stands.
@@ -78,9 +78,7 @@ impl Default for EnvironmentState {
 
 impl EnvironmentState {
     fn ingest(&mut self, run: &DiscoveryRun, scan: ScanState) {
-        let snapshot = Arc::new(run.snapshot());
-        self.app_list = build_app_list(&snapshot.installed_apps, &snapshot.available_backends);
-        self.snapshot = Some(snapshot);
+        self.snapshot = Some(Arc::new(run.snapshot()));
         self.scan = scan;
     }
 }
@@ -137,6 +135,8 @@ pub fn open_or_focus(
 pub struct AppState {
     pub store: Store,
     environment: EnvironmentState,
+    /// Handle to the module registry living inside the store's provider.
+    module_provider: Arc<ModuleProvider>,
     /// Held for the process lifetime; the watcher thread is event-driven and
     /// does no idle polling.
     environment_watcher: Option<crate::environment_watch::EnvironmentWatcher>,
@@ -145,15 +145,22 @@ pub struct AppState {
 impl EventEmitter<AppEvent> for AppState {}
 
 impl AppState {
-    pub fn new(store: Store) -> Self {
+    pub fn new(store: Store, module_provider: Arc<ModuleProvider>) -> Self {
         Self {
             store,
             environment: EnvironmentState::default(),
+            module_provider,
             environment_watcher: None,
         }
     }
 
-    // ---- Environment discovery (Phase 03) ---------------------------------
+    /// The module-registry handle (module metadata, provenance, app
+    /// summaries for the Applications window).
+    pub fn module_provider(&self) -> &Arc<ModuleProvider> {
+        &self.module_provider
+    }
+
+    // ---- Environment discovery (Phase 03) + module applicability (04) -----
 
     /// Current snapshot, when at least one discovery stage has completed.
     pub fn environment_snapshot(&self) -> Option<Arc<EnvironmentSnapshot>> {
@@ -168,6 +175,37 @@ impl AppState {
 
     pub fn scan_state(&self) -> ScanState {
         self.environment.scan
+    }
+
+    /// Publish a snapshot to the environment cache and re-evaluate module
+    /// applicability against it. The store reloads only when the set of
+    /// available settings changed (staged edits and navigation survive
+    /// otherwise).
+    fn apply_environment(&mut self, snapshot: &Arc<EnvironmentSnapshot>, cx: &mut Context<Self>) {
+        let modules = self.app_module_refs();
+        self.environment.app_list = build_app_list(
+            &snapshot.installed_apps,
+            &snapshot.available_backends,
+            &modules,
+        );
+        self.environment.snapshot = Some(snapshot.clone());
+        let changed = self.module_provider.set_environment(Some(snapshot));
+        if changed {
+            licoman_core::log::info(
+                "ui::modules",
+                "module applicability changed; reloading settings",
+                &[],
+            );
+            self.store.reload_all();
+            cx.emit(AppEvent::ModulesChanged);
+        }
+    }
+
+    /// Application-scope module summaries (cloned out of the registry under
+    /// a short lock).
+    fn app_module_refs(&self) -> Vec<licoman_core::modules::AppModuleRef> {
+        self.module_provider
+            .with_registry(|registry| registry.app_modules())
     }
 
     /// Start (or restart) discovery off the UI thread. Any in-flight scan is
@@ -214,6 +252,9 @@ impl AppState {
                         (ScanStatus::Completed, false) => ScanState::Loading { stage },
                     };
                     state.environment.ingest(&run, scan);
+                    if let Some(snapshot) = state.environment.snapshot.clone() {
+                        state.apply_environment(&snapshot, cx);
+                    }
                     cx.emit(AppEvent::EnvironmentChanged);
                 });
                 if published.is_err() {
@@ -268,13 +309,23 @@ impl AppState {
             return false;
         };
         self.environment.demo_locked = true;
-        self.environment.snapshot = Some(Arc::new(snapshot));
-        let snapshot = self.environment.snapshot.as_ref().unwrap();
-        self.environment.app_list =
-            build_app_list(&snapshot.installed_apps, &snapshot.available_backends);
         self.environment.scan = ScanState::Ready;
+        let snapshot = Arc::new(snapshot);
+        self.apply_environment(&snapshot, cx);
         cx.emit(AppEvent::EnvironmentChanged);
         true
+    }
+
+    /// Resolve the Applications-window selection identity for a module
+    /// (search-palette navigation): the installed app's identity when the
+    /// module matches one, else the module id.
+    pub fn select_identity_for_module(&self, module_id: &str) -> Option<String> {
+        self.environment
+            .app_list
+            .iter()
+            .find(|entry| entry.module.as_deref() == Some(module_id))
+            .map(|entry| entry.identity.clone())
+            .or_else(|| Some(module_id.to_string()))
     }
 
     /// Forward a typed command to the core store and emit the matching

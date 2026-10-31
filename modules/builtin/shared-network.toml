@@ -1,0 +1,176 @@
+schema_version = 1
+id = "shared.network"
+scope = "shared"
+title = "Network"
+description = "Sample network settings. Apply to the DNS override always fails in the mock to show failure handling."
+category = "Network"
+order = 30
+
+[support]
+maintainer = "Licoman maintainers"
+level = "partial"
+
+[[settings]]
+id = "wifi"
+title = "Wi-Fi"
+description = "Enable wireless networking."
+keywords = ["wireless", "wlan"]
+type = "boolean"
+control = "switch"
+default = true
+group = "Connectivity"
+order = 1
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "airplane_mode"
+title = "Airplane mode"
+description = "Turn off all radios."
+keywords = ["flight"]
+type = "boolean"
+control = "switch"
+default = false
+group = "Connectivity"
+order = 2
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "bluetooth"
+title = "Bluetooth"
+description = "Enable the Bluetooth stack."
+keywords = ["bt"]
+type = "boolean"
+control = "switch"
+default = true
+group = "Connectivity"
+order = 3
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "bluetooth_discoverable"
+title = "Discoverable"
+description = "Let other devices find this machine."
+type = "boolean"
+control = "switch"
+default = false
+group = "Connectivity"
+order = 4
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "dns"
+title = "DNS override"
+description = "A system resolver setting. Apply always fails in the mock to show failure handling."
+keywords = ["resolver"]
+type = "string"
+control = "text"
+default = ""
+max_length = 253
+group = "Resolution"
+order = 5
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "proxy_mode"
+title = "Proxy mode"
+description = "How HTTP traffic is routed."
+type = "enum"
+control = "dropdown"
+default = "None"
+group = "Proxy"
+order = 6
+[[settings.options]]
+value = "None"
+[[settings.options]]
+value = "Manual"
+[[settings.options]]
+value = "Automatic"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "proxy_url"
+title = "Proxy URL"
+description = "The proxy endpoint used in manual mode."
+type = "string"
+control = "text"
+default = ""
+max_length = 300
+group = "Proxy"
+order = 7
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "hostname"
+title = "Hostname"
+description = "The machine name on the network."
+type = "string"
+control = "text"
+default = ""
+max_length = 63
+group = "Identity"
+order = 8
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "metered"
+title = "Metered connection"
+description = "Reduce data usage on this network."
+type = "boolean"
+control = "switch"
+default = false
+group = "Connectivity"
+order = 9
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "mac_randomization"
+title = "MAC randomization"
+description = "How the Wi-Fi MAC address is chosen."
+type = "enum"
+control = "dropdown"
+default = "Stable"
+group = "Privacy"
+order = 10
+[[settings.options]]
+value = "Permanent"
+[[settings.options]]
+value = "Stable"
+[[settings.options]]
+value = "Random"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "vpn_status"
+title = "VPN"
+description = "Active VPN connections."
+type = "string"
+control = "read_only"
+policy = "read_only"
+default = "Managed by your VPN client"
+group = "Connectivity"
+order = 11
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "firewall_status"
+title = "Firewall"
+description = "Firewall configuration state."
+type = "string"
+control = "read_only"
+policy = "read_only"
+default = "Managed by the system firewall service"
+group = "Security"
+order = 12
+[settings.backend]
+kind = "mock"

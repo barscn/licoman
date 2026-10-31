@@ -1,6 +1,6 @@
 # Licoman Architecture
 
-**Status:** as of Phase 02 (2026-10-30). Decision records live in
+**Status:** as of Phase 04 (2026-10-31). Decision records live in
 [decisions.md](decisions.md); design decisions from Phase 01 live in
 [docs/design/decisions.md](../design/decisions.md) (D1–D13).
 
@@ -22,9 +22,15 @@ crates/licoman-core   domain: typed values, descriptors, lifecycle store,
 ```
 
 - `licoman-core` depends on **no GPUI** — in fact on no GUI library at all.
-  Its only dependencies are `serde` and `toml` (for Licoman's own preferences
-  file). This is enforced structurally by the dependency graph, not by
+  Its dependencies are `serde`, `toml` (Licoman's own preferences file and
+  the module manifests) and `schemars` (the generated module JSON Schema,
+  Phase 04). This is enforced structurally by the dependency graph, not by
   convention: if a file under `crates/core` needs gpui, the build fails.
+- Since Phase 04 the shipped settings catalog is **declarative**: built-in
+  module manifests (`modules/builtin/*.toml`, embedded at build time) are
+  validated, indexed and evaluated for applicability in
+  `crates/core/src/modules/`; the authoring contract is documented in
+  [../module-schema.md](../module-schema.md).
 - `licoman-ui` renders the **Quiet Control** design system (tokens in
   `crates/ui/src/theme.rs`) and adapts core state to widgets.
 - `apps/licoman` is deliberately thin: CLI parsing, environment checks,

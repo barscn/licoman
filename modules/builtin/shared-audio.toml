@@ -1,0 +1,196 @@
+schema_version = 1
+id = "shared.audio"
+scope = "shared"
+title = "Audio"
+description = "Sample sound device settings served by the mock value source."
+category = "Audio"
+order = 20
+
+[support]
+maintainer = "Licoman maintainers"
+level = "supported"
+
+[[settings]]
+id = "output_volume"
+title = "Output volume"
+description = "Master output level."
+keywords = ["sound", "loudness"]
+type = "float"
+control = "slider"
+default = 65
+min = 0
+max = 100
+step = 1
+unit = "%"
+group = "Output"
+order = 1
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "output_mute"
+title = "Mute output"
+description = "Silence all output."
+type = "boolean"
+control = "switch"
+default = false
+group = "Output"
+order = 2
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "output_device"
+title = "Output device"
+description = "Where sound is played."
+type = "enum"
+control = "dropdown"
+default = "Built-in Speakers"
+group = "Output"
+order = 3
+[[settings.options]]
+value = "Built-in Speakers"
+[[settings.options]]
+value = "HDMI"
+[[settings.options]]
+value = "USB Headset"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "output_port"
+title = "Output port"
+description = "Which physical port is active."
+type = "enum"
+control = "dropdown"
+default = "Auto"
+group = "Output"
+order = 4
+[[settings.options]]
+value = "Auto"
+[[settings.options]]
+value = "Analog"
+[[settings.options]]
+value = "Digital"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "balance"
+title = "Balance"
+description = "Left/right channel balance."
+type = "float"
+control = "slider"
+default = 0
+min = -1
+max = 1
+step = 0.05
+group = "Output"
+order = 5
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "input_volume"
+title = "Input volume"
+description = "Microphone level."
+keywords = ["mic"]
+type = "float"
+control = "slider"
+default = 40
+min = 0
+max = 100
+step = 1
+unit = "%"
+group = "Input"
+order = 6
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "input_mute"
+title = "Mute input"
+description = "Silence the microphone."
+type = "boolean"
+control = "switch"
+default = false
+group = "Input"
+order = 7
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "input_device"
+title = "Input device"
+description = "Where sound is recorded."
+type = "enum"
+control = "dropdown"
+default = "Internal Microphone"
+group = "Input"
+order = 8
+[[settings.options]]
+value = "Internal Microphone"
+[[settings.options]]
+value = "USB Microphone"
+[[settings.options]]
+value = "Headset Mic"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "over_amplification"
+title = "Allow over-amplification"
+description = "Permit output volume above 100%."
+type = "boolean"
+control = "switch"
+default = false
+group = "Output"
+order = 9
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "alert_volume"
+title = "Alert volume"
+description = "Volume of alert sounds."
+type = "float"
+control = "slider"
+default = 80
+min = 0
+max = 100
+step = 1
+unit = "%"
+group = "Feedback"
+order = 10
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "event_sounds"
+title = "Event sounds"
+description = "Play sounds for interface events."
+type = "boolean"
+control = "switch"
+default = true
+group = "Feedback"
+order = 11
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "audio_profile"
+title = "Device profile"
+description = "The active sound card profile."
+type = "enum"
+control = "dropdown"
+default = "Auto"
+group = "Output"
+order = 12
+[[settings.options]]
+value = "Auto"
+[[settings.options]]
+value = "Stereo"
+[[settings.options]]
+value = "Surround 5.1"
+[settings.backend]
+kind = "mock"

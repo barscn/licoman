@@ -1,0 +1,218 @@
+schema_version = 1
+id = "shared.power"
+scope = "shared"
+title = "Power"
+description = "Sample power management settings served by the mock value source."
+category = "Power"
+order = 40
+
+[support]
+maintainer = "Licoman maintainers"
+level = "partial"
+
+[[settings]]
+id = "profile"
+title = "Power profile"
+description = "Balanced, performance or power-saver. The real daemon runs on the system bus, which Licoman does not probe yet."
+keywords = ["performance", "battery"]
+type = "enum"
+control = "dropdown"
+default = "Balanced"
+group = "Profiles"
+order = 1
+[[settings.options]]
+value = "Balanced"
+[[settings.options]]
+value = "Performance"
+[[settings.options]]
+value = "Power Saver"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "screen_blank"
+title = "Blank screen after"
+description = "Idle time before the screen blanks."
+type = "integer"
+control = "slider"
+default = 300
+min = 60
+max = 3600
+step = 30
+unit = "s"
+group = "Screen"
+order = 2
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "dim_screen"
+title = "Dim screen"
+description = "Dim the display before blanking."
+type = "boolean"
+control = "switch"
+default = true
+group = "Screen"
+order = 3
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "auto_suspend_ac"
+title = "Suspend on AC idle"
+description = "Suspend automatically on wall power."
+type = "boolean"
+control = "switch"
+default = true
+group = "Suspend"
+order = 4
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "suspend_delay_ac"
+title = "Suspend delay on AC"
+description = "Idle time before suspending on wall power."
+type = "integer"
+control = "slider"
+default = 900
+min = 60
+max = 3600
+step = 30
+unit = "s"
+group = "Suspend"
+order = 5
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "auto_suspend_battery"
+title = "Suspend on battery idle"
+description = "Suspend automatically on battery."
+type = "boolean"
+control = "switch"
+default = true
+group = "Suspend"
+order = 6
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "suspend_delay_battery"
+title = "Suspend delay on battery"
+description = "Idle time before suspending on battery."
+type = "integer"
+control = "slider"
+default = 600
+min = 60
+max = 3600
+step = 30
+unit = "s"
+group = "Suspend"
+order = 7
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "lid_close_action"
+title = "Lid close action"
+description = "What happens when the lid closes."
+type = "enum"
+control = "dropdown"
+default = "Suspend"
+group = "Buttons"
+order = 8
+[[settings.options]]
+value = "Suspend"
+[[settings.options]]
+value = "Hibernate"
+[[settings.options]]
+value = "Nothing"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "power_button_action"
+title = "Power button action"
+description = "What happens when the power button is pressed."
+type = "enum"
+control = "dropdown"
+default = "Suspend"
+group = "Buttons"
+order = 9
+[[settings.options]]
+value = "Suspend"
+[[settings.options]]
+value = "Power Off"
+[[settings.options]]
+value = "Nothing"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "battery_percentage"
+title = "Battery percentage"
+description = "Show the percentage next to the battery icon."
+type = "boolean"
+control = "switch"
+default = false
+group = "Battery"
+order = 10
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "low_battery_threshold"
+title = "Low battery threshold"
+description = "Charge level that triggers warnings."
+type = "integer"
+control = "slider"
+default = 10
+min = 5
+max = 50
+unit = "%"
+group = "Battery"
+order = 11
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "charge_limit"
+title = "Charge limit"
+description = "Stop charging below 100% to protect the battery."
+type = "integer"
+control = "slider"
+default = 100
+min = 50
+max = 100
+step = 5
+unit = "%"
+group = "Battery"
+order = 12
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "saver_warning"
+title = "Low power warning"
+description = "Warn when the charge limit is reached."
+type = "boolean"
+control = "switch"
+default = true
+group = "Battery"
+order = 13
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "daemon_status"
+title = "Power daemon"
+description = "Which power management daemon is active."
+type = "string"
+control = "read_only"
+policy = "read_only"
+default = "System-bus power services are not probed yet"
+group = "Profiles"
+order = 14
+[settings.backend]
+kind = "mock"

@@ -1,0 +1,262 @@
+schema_version = 1
+id = "app.kitty"
+scope = "application"
+title = "Kitty"
+description = "GPU-accelerated terminal emulator. Values are mock; the config binding is recorded for Phase 05."
+category = "Terminal"
+order = 20
+docs_url = "https://sw.kovidgoyal.net/kitty/conf/"
+
+[compatibility]
+apps = ["kitty.desktop"]
+required_backends = ["config:kitty"]
+
+[support]
+maintainer = "Licoman maintainers"
+tested = ["Kitty 0.3x"]
+level = "supported"
+
+[[settings]]
+id = "font_family"
+title = "Font family"
+description = "The terminal font family."
+keywords = ["font"]
+type = "string"
+control = "text"
+default = ""
+max_length = 100
+group = "Appearance"
+order = 1
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "font_size"
+title = "Font size"
+description = "The terminal font size."
+keywords = ["font"]
+type = "float"
+control = "slider"
+default = 13
+min = 4
+max = 32
+step = 0.5
+unit = "pt"
+group = "Appearance"
+order = 2
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "line_height"
+title = "Line height adjustment"
+description = "Extra spacing between lines."
+type = "integer"
+control = "slider"
+default = 0
+min = -50
+max = 50
+unit = "%"
+group = "Appearance"
+order = 3
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "cursor_shape"
+title = "Cursor shape"
+description = "The terminal cursor shape."
+type = "enum"
+control = "dropdown"
+default = "block"
+group = "Appearance"
+order = 4
+[[settings.options]]
+value = "block"
+[[settings.options]]
+value = "beam"
+[[settings.options]]
+value = "underline"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "cursor_blink_interval"
+title = "Cursor blink interval"
+description = "Blink cycle length."
+type = "float"
+control = "slider"
+default = 0.6
+min = 0
+max = 5
+step = 0.1
+unit = "s"
+group = "Appearance"
+order = 5
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "scrollback_lines"
+title = "Scrollback lines"
+description = "How much history is kept."
+type = "integer"
+control = "slider"
+default = 2000
+min = 0
+max = 100000
+step = 1000
+group = "Scrolling"
+order = 6
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "scrollback_pager_size"
+title = "Pager history size"
+description = "Extra scrollback stored for the pager."
+type = "integer"
+control = "slider"
+default = 100
+min = 0
+max = 1000
+unit = "MiB"
+group = "Scrolling"
+order = 7
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "touch_scroll_multiplier"
+title = "Touch scroll multiplier"
+description = "Touchpad scroll sensitivity."
+type = "float"
+control = "slider"
+default = 1
+min = 0.1
+max = 10
+step = 0.1
+group = "Scrolling"
+order = 8
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "audio_bell"
+title = "Audio bell"
+description = "Play a sound for the terminal bell."
+type = "boolean"
+control = "switch"
+default = false
+group = "Bell"
+order = 9
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "visual_bell_duration"
+title = "Visual bell duration"
+description = "Flash the window for the bell."
+type = "float"
+control = "slider"
+default = 0
+min = 0
+max = 5
+step = 0.1
+unit = "s"
+group = "Bell"
+order = 10
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "window_padding_width"
+title = "Window padding"
+description = "Space between text and the window edge."
+type = "integer"
+control = "slider"
+default = 2
+min = 0
+max = 40
+unit = "px"
+group = "Window"
+order = 11
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "remember_window_size"
+title = "Remember window size"
+description = "Start with the last window size."
+type = "boolean"
+control = "switch"
+default = true
+group = "Window"
+order = 12
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "hide_decorations"
+title = "Hide decorations"
+description = "Which window decorations to hide."
+type = "enum"
+control = "dropdown"
+default = "no"
+group = "Window"
+order = 13
+[[settings.options]]
+value = "no"
+[[settings.options]]
+value = "yes"
+[[settings.options]]
+value = "titlebar-and-corners"
+[[settings.options]]
+value = "titlebar"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "confirm_close"
+title = "Confirm window close"
+description = "Windows that must be confirmed before closing."
+type = "integer"
+control = "number"
+default = 2
+min = 0
+max = 10
+group = "Window"
+order = 14
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "clipboard_append"
+title = "Clipboard control"
+description = "How new selections join the clipboard."
+type = "enum"
+control = "dropdown"
+default = "no-append"
+group = "Advanced"
+order = 15
+[[settings.options]]
+value = "no-append"
+[[settings.options]]
+value = "discard"
+[[settings.options]]
+value = "clipboard"
+[[settings.options]]
+value = "primary"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "reload_config"
+title = "Reload configuration"
+description = "Re-reads kitty.conf. Inert until a trusted backend exists."
+keywords = ["edit"]
+control = "action"
+group = "Advanced"
+order = 16
+[settings.backend]
+kind = "mock"

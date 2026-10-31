@@ -12,7 +12,7 @@ use crate::descriptor::{ApplyMode, Control, Scope, SettingDescriptor};
 use crate::error::{ErrorKind, LicomanError};
 use crate::prefs::{AppearanceMode, LoadedPreferences};
 use crate::registry::Registry;
-use crate::search::{self, SearchHit};
+use crate::search::{SearchHit, SearchIndex};
 use crate::state::{Readback, SettingPhase};
 use crate::value::{self, SettingValue};
 
@@ -45,6 +45,9 @@ impl SettingModel {
 pub struct Store {
     registry: Registry,
     models: BTreeMap<String, SettingModel>,
+    /// Precomputed normalized search text (04_MODULE_SCHEMA_AND_REGISTRY.md
+    /// §6): rebuilt with load/reload, never per keystroke.
+    search_index: SearchIndex,
     // Main-window selections.
     selected_scope: Scope,
     selected_category: Option<String>,
@@ -71,6 +74,7 @@ impl Store {
         let mut store = Self {
             registry,
             models: BTreeMap::new(),
+            search_index: SearchIndex::default(),
             selected_scope: Scope::Shared,
             selected_category: None,
             selected_app: None,
@@ -96,9 +100,10 @@ impl Store {
     /// verification pass whose mismatch is reported as an external conflict.
     pub fn load(&mut self) {
         self.models.clear();
+        self.search_index = SearchIndex::build(self.registry.descriptors());
         let descriptors: Vec<SettingDescriptor> = self.registry.descriptors().to_vec();
         for descriptor in &descriptors {
-            let model = match self.registry.read(descriptor.id) {
+            let model = match self.registry.read(&descriptor.id) {
                 Ok(value) => SettingModel {
                     stored: Some(value),
                     phase: SettingPhase::Idle,
@@ -113,6 +118,45 @@ impl Store {
             self.models.insert(descriptor.id.to_string(), model);
         }
         self.verify_against_source();
+    }
+
+    /// Re-read every setting after the registry content changed (module
+    /// applicability recomputed on an environment refresh). Staged edits on
+    /// ids that still exist and remain editable are restored, and the
+    /// search index is rebuilt; window selections live in separate fields
+    /// and survive untouched (04_MODULE_SCHEMA_AND_REGISTRY.md §6).
+    pub fn reload_all(&mut self) {
+        let edits: Vec<(String, SettingValue)> = self
+            .models
+            .iter()
+            .filter(|(id, m)| {
+                m.edited.is_some()
+                    && self
+                        .registry
+                        .descriptor(id)
+                        .is_some_and(|d| d.control != Control::ReadOnly)
+            })
+            .map(|(id, m)| (id.clone(), m.edited.clone().expect("filtered above")))
+            .collect();
+        let had_edits = !edits.is_empty();
+        self.load();
+        for (id, value) in edits {
+            let Some(model) = self.models.get_mut(&id) else {
+                continue;
+            };
+            if model.phase.blocks_editing() {
+                continue; // the setting became unavailable; drop the edit
+            }
+            model.edited = Some(value);
+            model.phase = SettingPhase::Dirty;
+        }
+        if had_edits {
+            crate::log::info(
+                "core::store",
+                "reload preserved staged edits",
+                &[("count", self.pending_count().to_string())],
+            );
+        }
     }
 
     /// Re-read readable settings; a differing value means the source changed
@@ -167,21 +211,34 @@ impl Store {
             .descriptors_in_scope(scope)
             .into_iter()
             .map(|descriptor| {
-                let model = self.models.get(descriptor.id).cloned().unwrap_or_default();
+                let model = self.models.get(&descriptor.id).cloned().unwrap_or_default();
                 (descriptor.clone(), model)
             })
             .collect()
     }
 
     /// Categories within a scope, in registration order.
-    pub fn categories(&self, scope: Scope) -> Vec<&'static str> {
-        let mut categories: Vec<&'static str> = Vec::new();
+    pub fn categories(&self, scope: Scope) -> Vec<String> {
+        let mut categories: Vec<String> = Vec::new();
         for descriptor in self.registry.descriptors_in_scope(scope) {
             if !categories.contains(&descriptor.category) {
-                categories.push(descriptor.category);
+                categories.push(descriptor.category.clone());
             }
         }
         categories
+    }
+
+    /// Owned (descriptor, model) snapshots for an explicit id list (used by
+    /// the Applications window for one module's settings). Ids that are not
+    /// registered are skipped; order follows the input list.
+    pub fn rows_for_ids(&self, ids: &[String]) -> Vec<(SettingDescriptor, SettingModel)> {
+        ids.iter()
+            .filter_map(|id| {
+                let descriptor = self.registry.descriptor(id)?;
+                let model = self.models.get(id).cloned().unwrap_or_default();
+                Some((descriptor.clone(), model))
+            })
+            .collect()
     }
 
     pub fn effective_value(&self, id: &str) -> Option<SettingValue> {
@@ -244,7 +301,7 @@ impl Store {
     }
 
     pub fn search(&self, query: &str) -> Vec<SearchHit> {
-        search::search(self.registry.descriptors(), query)
+        self.search_index.search(query)
     }
 
     // ---- command dispatch -------------------------------------------------
@@ -325,6 +382,7 @@ impl Store {
         model.readback = Readback::NotYet;
         model.edited = Some(value);
         model.phase = SettingPhase::Dirty;
+        crate::log::info("core::store", "staged edit", &[("id", id.to_string())]);
         DispatchReport {
             outcome: Outcome::Accepted,
             settings_changed: true,

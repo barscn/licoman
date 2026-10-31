@@ -1,0 +1,141 @@
+schema_version = 1
+id = "desktop.session"
+scope = "desktop"
+title = "Session (mock)"
+description = "Sample desktop session settings served by the mock value source."
+category = "Session"
+order = 10
+
+[support]
+maintainer = "Licoman maintainers"
+level = "supported"
+
+[[settings]]
+id = "gaps"
+title = "Window gaps"
+description = "Outer and inner gaps between tiled windows."
+keywords = ["tiling", "borders"]
+type = "boolean"
+control = "switch"
+default = true
+group = "Windows"
+order = 1
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "keyboard_repeat_delay"
+title = "Key repeat delay"
+description = "Delay before a held key starts repeating."
+keywords = ["keyboard"]
+type = "enum"
+control = "dropdown"
+restart = "the compositor session"
+default = "300 ms"
+group = "Keyboard"
+order = 2
+[[settings.options]]
+value = "200 ms"
+[[settings.options]]
+value = "300 ms"
+[[settings.options]]
+value = "500 ms"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "keyboard_repeat_rate"
+title = "Key repeat rate"
+description = "How fast a held key repeats."
+type = "integer"
+control = "slider"
+default = 25
+min = 10
+max = 120
+step = 5
+unit = "cps"
+group = "Keyboard"
+order = 3
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "accent"
+title = "Desktop accent color"
+description = "Changed by another tool since Licoman last read it (external-conflict showcase)."
+type = "enum"
+control = "dropdown"
+default = "#70D0A9"
+group = "Windows"
+order = 4
+[[settings.options]]
+value = "#8AB4FF"
+[[settings.options]]
+value = "#70D0A9"
+[[settings.options]]
+value = "#F2C36C"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "titlebar_height"
+title = "Title bar height"
+description = "Height of server-side title bars."
+type = "integer"
+control = "number"
+default = 32
+min = 20
+max = 60
+unit = "px"
+group = "Windows"
+order = 5
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "focus_follows_mouse"
+title = "Focus follows mouse"
+description = "Focus the window under the pointer."
+type = "boolean"
+control = "switch"
+default = false
+group = "Windows"
+order = 6
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "cursor_warp"
+title = "Cursor warp"
+description = "Move the pointer when focus changes."
+type = "boolean"
+control = "switch"
+default = false
+group = "Windows"
+order = 7
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "hot_corner"
+title = "Hot corner"
+description = "Trigger an overview from the top-left corner."
+type = "boolean"
+control = "switch"
+default = false
+group = "Windows"
+order = 8
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "workspace_overview"
+title = "Workspace overview"
+description = "Show an overview of all workspaces."
+type = "boolean"
+control = "switch"
+default = true
+group = "Windows"
+order = 9
+[settings.backend]
+kind = "mock"

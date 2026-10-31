@@ -1,0 +1,389 @@
+schema_version = 1
+id = "shared.appearance"
+scope = "shared"
+title = "Appearance"
+description = "Sample interface appearance settings served by the mock value source."
+category = "Appearance"
+order = 10
+
+[support]
+maintainer = "Licoman maintainers"
+tested = ["Licoman 0.1 mock catalog"]
+level = "supported"
+
+[[settings]]
+id = "text_scaling"
+title = "Text scaling"
+description = "Scales text across the interface (sample values)."
+keywords = ["zoom", "font size"]
+type = "enum"
+control = "dropdown"
+default = "100%"
+group = "Fonts and text"
+order = 1
+[[settings.options]]
+value = "90%"
+[[settings.options]]
+value = "100%"
+[[settings.options]]
+value = "110%"
+[[settings.options]]
+value = "125%"
+[[settings.options]]
+value = "150%"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "font_size_interface"
+title = "Interface font size"
+description = "Base font size for interface text."
+keywords = ["font"]
+type = "float"
+control = "slider"
+default = 11
+min = 8
+max = 24
+step = 0.5
+unit = "pt"
+group = "Fonts and text"
+order = 2
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "font_size_monospace"
+title = "Monospace font size"
+description = "Font size for code and terminal output."
+keywords = ["mono"]
+type = "float"
+control = "slider"
+default = 11
+min = 8
+max = 24
+step = 0.5
+unit = "pt"
+group = "Fonts and text"
+order = 3
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "font_hinting"
+title = "Font hinting"
+description = "How glyph outlines are snapped to pixels."
+type = "enum"
+control = "dropdown"
+default = "Slight"
+group = "Fonts and text"
+order = 4
+[[settings.options]]
+value = "None"
+[[settings.options]]
+value = "Slight"
+[[settings.options]]
+value = "Medium"
+[[settings.options]]
+value = "Full"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "text_rendering"
+title = "Text rendering"
+description = "Grayscale or subpixel glyph rendering."
+type = "enum"
+control = "dropdown"
+default = "Automatic"
+group = "Fonts and text"
+order = 5
+[[settings.options]]
+value = "Automatic"
+[[settings.options]]
+value = "Grayscale"
+[[settings.options]]
+value = "Subpixel"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "animations_enabled"
+title = "Enable animations"
+description = "Interface motion such as transitions."
+keywords = ["motion", "transitions"]
+type = "boolean"
+control = "switch"
+default = true
+group = "Motion"
+order = 6
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "animations_duration"
+title = "Animation duration"
+description = "Length of interface transitions."
+type = "integer"
+control = "slider"
+default = 200
+min = 50
+max = 1000
+step = 50
+unit = "ms"
+group = "Motion"
+order = 7
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "reduce_motion"
+title = "Reduce motion"
+description = "Prefer cross-fades over sliding motion."
+type = "boolean"
+control = "checkbox"
+default = false
+group = "Motion"
+order = 8
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "accent_color"
+title = "Accent color"
+description = "Highlight color used across the interface."
+keywords = ["highlight", "theme"]
+type = "enum"
+control = "dropdown"
+default = "#3584E4"
+group = "Color"
+order = 9
+[[settings.options]]
+value = "#3584E4"
+[[settings.options]]
+value = "#8AB4FF"
+[[settings.options]]
+value = "#70D0A9"
+[[settings.options]]
+value = "#F2C36C"
+[[settings.options]]
+value = "#E06C75"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "gtk_theme"
+title = "Interface theme"
+description = "The widget theme family."
+keywords = ["dark", "light"]
+type = "enum"
+control = "dropdown"
+default = "Adwaita"
+group = "Color"
+order = 10
+[[settings.options]]
+value = "Adwaita"
+[[settings.options]]
+value = "Adwaita-dark"
+[[settings.options]]
+value = "Breeze-Dark"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "icon_theme"
+title = "Icon theme"
+description = "The icon set used across applications."
+type = "enum"
+control = "dropdown"
+default = "Adwaita"
+group = "Color"
+order = 11
+[[settings.options]]
+value = "Adwaita"
+[[settings.options]]
+value = "Breeze"
+[[settings.options]]
+value = "Papirus"
+[[settings.options]]
+value = "Numix"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "high_contrast"
+title = "High contrast"
+description = "Increase contrast for accessibility."
+keywords = ["a11y"]
+type = "boolean"
+control = "checkbox"
+default = false
+group = "Color"
+order = 12
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "grayscale"
+title = "Grayscale"
+description = "Render the interface without color."
+type = "boolean"
+control = "checkbox"
+default = false
+group = "Color"
+order = 13
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "cursor_theme"
+title = "Cursor theme"
+description = "The pointer image set."
+type = "enum"
+control = "dropdown"
+default = "Adwaita"
+group = "Cursor"
+order = 14
+[[settings.options]]
+value = "Adwaita"
+[[settings.options]]
+value = "Breeze_Snow"
+[[settings.options]]
+value = "Bibata-Modern-Ice"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "cursor_size"
+title = "Cursor size"
+description = "Pointer size in pixels."
+type = "integer"
+control = "number"
+default = 24
+min = 12
+max = 96
+step = 2
+unit = "px"
+group = "Cursor"
+order = 15
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "night_light_enabled"
+title = "Night light"
+description = "Warm the display colors at night."
+keywords = ["blue light", "color temperature"]
+type = "boolean"
+control = "switch"
+default = false
+group = "Night light"
+order = 16
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "night_light_temperature"
+title = "Night light temperature"
+description = "How warm the display becomes at night."
+type = "integer"
+control = "slider"
+default = 4500
+min = 1700
+max = 6500
+step = 100
+unit = "K"
+group = "Night light"
+order = 17
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "night_light_schedule_auto"
+title = "Sunset to sunrise"
+description = "Schedule night light automatically."
+type = "boolean"
+control = "checkbox"
+default = true
+group = "Night light"
+order = 18
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "overlay_scrollbars"
+title = "Overlay scrollbars"
+description = "Scrollbars appear only while scrolling."
+type = "boolean"
+control = "checkbox"
+default = true
+group = "Scrolling"
+order = 19
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "scrollbar_width"
+title = "Scrollbar width"
+description = "Thickness of scrollbars."
+type = "enum"
+control = "dropdown"
+default = "Default"
+group = "Scrolling"
+order = 20
+[[settings.options]]
+value = "Default"
+[[settings.options]]
+value = "Thin"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "sound_theme"
+title = "Sound theme"
+description = "The set of interface event sounds."
+type = "enum"
+control = "dropdown"
+default = "freedesktop"
+group = "Feedback"
+order = 21
+[[settings.options]]
+value = "freedesktop"
+[[settings.options]]
+value = "oxygen"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "interface_language"
+title = "Interface language"
+description = "Language for interface text."
+keywords = ["locale", "translation"]
+type = "enum"
+control = "dropdown"
+default = "en"
+group = "Feedback"
+order = 22
+[[settings.options]]
+value = "en"
+[[settings.options]]
+value = "de"
+[[settings.options]]
+value = "tr"
+[[settings.options]]
+value = "fr"
+[settings.backend]
+kind = "mock"
+
+[[settings]]
+id = "accessibility_status"
+title = "Accessibility services"
+description = "Whether desktop accessibility services are active."
+keywords = ["a11y", "screen reader"]
+type = "string"
+control = "read_only"
+policy = "read_only"
+default = "Provided by the desktop accessibility service"
+group = "Feedback"
+order = 23
+[settings.backend]
+kind = "mock"

@@ -4,14 +4,16 @@
 for Linux configuration, built with **Rust + GPUI + GPUI Kit**. No Electron,
 no browser UI, no embedded web view.
 
-> **Status: Phase 03 (environment discovery) implemented.** The app now
-> detects the real distribution, session and installed applications
-> (read-only, evidence-based, cancellable) and merges them with a
-> deterministic mock provider. No real configuration is read or written
-> yet — Licoman only ever writes its own preferences file. See
-> [docs/handoffs/PHASE_03_REPORT.md](docs/handoffs/PHASE_03_REPORT.md),
-> [docs/architecture/discovery.md](docs/architecture/discovery.md) and
-> [docs/architecture/README.md](docs/architecture/README.md).
+> **Status: Phase 04 (declarative module schema and registry) implemented.**
+> The shipped settings catalog is now declarative: built-in module manifests
+> (`modules/builtin/*.toml`, embedded at build time) are validated, indexed
+> and evaluated for applicability against the detected environment. Both
+> windows render registry-driven rows through one control factory; real
+> backends are declared and recorded but never read or written yet —
+> Licoman only ever writes its own preferences file. See
+> [docs/handoffs/PHASE_04_REPORT.md](docs/handoffs/PHASE_04_REPORT.md),
+> [docs/module-schema.md](docs/module-schema.md) and
+> [docs/architecture/decisions.md](docs/architecture/decisions.md) (D31–D37).
 
 ## Developer commands
 
@@ -56,6 +58,7 @@ diagnostic; domain tests run fine headless.
 | `empty` | No providers registered (unavailable state) |
 | `arch-hyprland`, `fedora-gnome`, `ubuntu-x11`, `debian-xfce`, `multi-xdg`, `unknown` | Discovery demo snapshots built through the real parsers (environments this machine cannot run) |
 | `all-apps` | Applications window opened directly in the "All installed" view |
+| `app-detail` | Applications window with an installed module-backed app selected (registry-driven tabs and rows) |
 
 ```sh
 LICOMAN_DEMO=apps cargo run -p licoman
@@ -65,6 +68,13 @@ Environment diagnostics (headless, read-only, redacted):
 
 ```sh
 cargo run -p licoman -- --diagnostics
+```
+
+Module tooling (Phase 04, both read-only):
+
+```sh
+cargo run -p licoman -- module validate modules/examples/   # manifest linter
+cargo run -p licoman -- module schema                       # JSON Schema
 ```
 
 Logs: `LICOMAN_LOG=info cargo run -p licoman` (structured key=value records
@@ -81,6 +91,7 @@ docs/design/         # Quiet Control design system documents (Phase 01)
 docs/handoffs/       # per-phase reports (PHASE_01_REPORT.md, PHASE_02_REPORT.md …)
 docs/screenshots/    # captured on a real Hyprland/Wayland session
 tests/fixtures/      # strictly isolated fixtures (discovery fixtures: Phase 03)
+modules/             # built-in + example module manifests (Phase 04)
 tests/tools/         # dev verification harnesses (WIP Wayland key injector)
 .github/workflows/   # CI: headless core job + full gpui workspace job
 ```

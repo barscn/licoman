@@ -1,41 +1,44 @@
-//! Merging discovered applications with registered modules
-//! (03_ENVIRONMENT_DISCOVERY.md §3).
+//! Merging discovered applications with registered application modules
+//! (03_ENVIRONMENT_DISCOVERY.md §3, registry-driven since Phase 04).
 //!
 //! "A detected app is not automatically supported." The five conditions stay
 //! separate:
 //!
 //! - **installed** — a desktop entry was discovered (this module's input);
 //! - **module available** — a registered Licoman module matches the app;
-//! - **app version compatible** — *not claimed in Phase 03* (needs real
-//!   backends, Phase 05+);
+//! - **app version compatible** — *not claimed* (modules that declare a
+//!   version range are conservatively inapplicable, see `modules::compat`);
 //! - **backend available** — the anticipated config location/backend probe
 //!   for the app is available;
-//! - **writable** — *not claimed in Phase 03* (Phase 06+).
+//! - **writable** — *not claimed in this phase* (Phase 06+).
 //!
 //! Matching is deterministic and explainable: desktop-file id equality
-//! (high confidence) or `StartupWMClass` equality (medium confidence),
-//! both case-insensitive against the module id. Nothing else matches —
-//! no fuzzy heuristics.
+//! (case-insensitive against the module's declared `apps`, suffix-stripped)
+//! or `StartupWMClass` equality as fallback. Nothing else matches — no fuzzy
+//! heuristics. Since Phase 04 the module side comes from the module registry
+//! (`AppModuleRef`), not a hand-written catalog.
 
 use super::apps::InstalledApp;
 use super::backends::BackendCapability;
 use super::backends::BackendKind;
-use crate::mock::{APPS_CATALOG, Support};
+use crate::modules::compat::normalize_app_id;
+use crate::modules::def::SupportLevel;
+use crate::modules::registry::AppModuleRef;
 
 /// One row of the merged Applications-window list.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppListEntry {
     /// Stable identity: the desktop-file id (e.g. `Alacritty.desktop`) or,
-    /// for module-only rows in fixtures/tests, the module id.
+    /// for module-only rows, the module id.
     pub identity: String,
     /// The discovered application, when installed.
     pub app: Option<InstalledApp>,
     /// The registered module id, when a module matches.
-    pub module: Option<&'static str>,
-    /// Module coverage: `Supported`/`Partial` only when a module matches;
-    /// otherwise `Unsupported` — honestly shown as "no Licoman
-    /// integration available yet".
-    pub support: Support,
+    pub module: Option<String>,
+    /// Module coverage: the module's declared support level when a module
+    /// matches; [`SupportLevel::Unsupported`] only when no module matches —
+    /// honestly shown as "no Licoman integration available yet".
+    pub support: SupportLevel,
     /// The backend/config-location probe for this app is available.
     pub backend_available: bool,
     /// Display name: the discovered app name, else the module name.
@@ -56,19 +59,25 @@ impl AppListEntry {
     }
 }
 
-/// Pure merge over discovered apps, backend probes and the registered
-/// module catalog. Deterministic: output is sorted by (module presence
+/// Pure merge over discovered apps, backend probes and registered
+/// application modules. Deterministic: output is sorted by (module presence
 /// first, then display name, then identity).
-pub fn build_app_list(apps: &[InstalledApp], backends: &[BackendCapability]) -> Vec<AppListEntry> {
-    let module_for = |candidate: &str| -> Option<(&'static str, Support, &'static str)> {
-        let needle = candidate.to_ascii_lowercase();
-        for module in APPS_CATALOG {
-            let module_id = module.id.to_ascii_lowercase();
-            if needle.strip_suffix(".desktop") == Some(module_id.as_str()) || needle == module_id {
-                return Some((module.id, module.support, module.name));
-            }
-        }
-        None
+pub fn build_app_list(
+    apps: &[InstalledApp],
+    backends: &[BackendCapability],
+    modules: &[AppModuleRef],
+) -> Vec<AppListEntry> {
+    let module_for = |candidate: &str| -> Option<&AppModuleRef> {
+        let needle = normalize_app_id(candidate);
+        modules
+            .iter()
+            .find(|&module| {
+                module
+                    .apps
+                    .iter()
+                    .any(|app| normalize_app_id(app) == needle)
+            })
+            .map(|v| v as _)
     };
 
     let backend_available = |app_id: &str| -> bool {
@@ -84,20 +93,20 @@ pub fn build_app_list(apps: &[InstalledApp], backends: &[BackendCapability]) -> 
     };
 
     let mut entries: Vec<AppListEntry> = Vec::new();
-    let mut consumed_modules = Vec::new();
+    let mut consumed_modules: Vec<&str> = Vec::new();
 
     for app in apps {
         // Module match: desktop-file id first, then StartupWMClass.
         let module_match =
             module_for(&app.id).or_else(|| app.wm_class.as_deref().and_then(module_for));
 
-        if let Some((module_id, support, _module_name)) = module_match {
-            consumed_modules.push(module_id);
+        if let Some(module) = module_match {
+            consumed_modules.push(&module.module_id);
             entries.push(AppListEntry {
                 identity: app.id.clone(),
                 app: Some(app.clone()),
-                module: Some(module_id),
-                support,
+                module: Some(module.module_id.clone()),
+                support: module.level,
                 backend_available: backend_available(&app.id),
                 display_name: app.name.clone(),
             });
@@ -106,7 +115,7 @@ pub fn build_app_list(apps: &[InstalledApp], backends: &[BackendCapability]) -> 
                 identity: app.id.clone(),
                 app: Some(app.clone()),
                 module: None,
-                support: Support::Unsupported,
+                support: SupportLevel::Unsupported,
                 backend_available: backend_available(&app.id),
                 display_name: app.name.clone(),
             });
@@ -116,15 +125,15 @@ pub fn build_app_list(apps: &[InstalledApp], backends: &[BackendCapability]) -> 
     // Modules with no installed app still appear (module available, app not
     // installed) so the supported view works on machines without the app —
     // clearly labeled by the UI as "not installed".
-    for module in APPS_CATALOG {
-        if !consumed_modules.contains(&module.id) {
+    for module in modules {
+        if !consumed_modules.contains(&module.module_id.as_str()) {
             entries.push(AppListEntry {
-                identity: module.id.to_string(),
+                identity: module.module_id.clone(),
                 app: None,
-                module: Some(module.id),
-                support: module.support,
+                module: Some(module.module_id.clone()),
+                support: module.level,
                 backend_available: false,
-                display_name: module.name.to_string(),
+                display_name: module.name.clone(),
             });
         }
     }
@@ -172,16 +181,50 @@ mod tests {
         }
     }
 
+    fn module(id: &str, name: &str, level: SupportLevel, apps: &[&str]) -> AppModuleRef {
+        AppModuleRef {
+            module_id: id.to_string(),
+            name: name.to_string(),
+            level,
+            apps: apps.iter().map(|s| s.to_string()).collect(),
+            provenance: Vec::new(),
+        }
+    }
+
+    fn catalog() -> Vec<AppModuleRef> {
+        vec![
+            module(
+                "app.alacritty",
+                "Alacritty",
+                SupportLevel::Supported,
+                &["alacritty.desktop"],
+            ),
+            module(
+                "app.kitty",
+                "Kitty",
+                SupportLevel::Supported,
+                &["kitty.desktop"],
+            ),
+            module("app.mpv", "MPV", SupportLevel::Partial, &["mpv.desktop"]),
+            module(
+                "app.zed",
+                "Zed",
+                SupportLevel::ReadOnly,
+                &["dev.zed.Zed.desktop"],
+            ),
+        ]
+    }
+
     #[test]
     fn matches_by_desktop_file_id() {
         let apps = vec![app("alacritty.desktop", "Alacritty")];
-        let list = build_app_list(&apps, &[]);
+        let list = build_app_list(&apps, &[], &catalog());
         let entry = list
             .iter()
             .find(|e| e.identity == "alacritty.desktop")
             .unwrap();
-        assert_eq!(entry.module, Some("alacritty"));
-        assert_eq!(entry.support, Support::Supported);
+        assert_eq!(entry.module.as_deref(), Some("app.alacritty"));
+        assert_eq!(entry.support, SupportLevel::Supported);
         assert!(entry.visible_as_supported());
     }
 
@@ -189,35 +232,35 @@ mod tests {
     fn matches_by_startup_wm_class_as_fallback() {
         let mut entry_app = app("org.unknown.Terminal.desktop", "Terminal");
         entry_app.wm_class = Some("kitty".to_string());
-        let list = build_app_list(&[entry_app], &[]);
+        let list = build_app_list(&[entry_app], &[], &catalog());
         let entry = list
             .iter()
             .find(|e| e.identity == "org.unknown.Terminal.desktop")
             .unwrap();
-        assert_eq!(entry.module, Some("kitty"));
+        assert_eq!(entry.module.as_deref(), Some("app.kitty"));
     }
 
     #[test]
     fn unknown_app_is_installed_but_unsupported() {
         let apps = vec![app("org.flatpak.HeavyApp.desktop", "Heavy App")];
-        let list = build_app_list(&apps, &[]);
+        let list = build_app_list(&apps, &[], &catalog());
         let entry = list
             .iter()
             .find(|e| e.identity == "org.flatpak.HeavyApp.desktop")
             .unwrap();
         assert!(entry.app.is_some(), "installed");
         assert_eq!(entry.module, None, "no module");
-        assert_eq!(entry.support, Support::Unsupported);
+        assert_eq!(entry.support, SupportLevel::Unsupported);
         assert!(!entry.visible_as_supported());
     }
 
     #[test]
     fn uninstalled_modules_still_list_with_module_available() {
-        let list = build_app_list(&[], &[]);
-        let zed = list.iter().find(|e| e.identity == "zed").unwrap();
+        let list = build_app_list(&[], &[], &catalog());
+        let zed = list.iter().find(|e| e.identity == "app.zed").unwrap();
         assert!(zed.app.is_none());
-        assert_eq!(zed.module, Some("zed"));
-        assert_eq!(zed.support, Support::Unsupported);
+        assert_eq!(zed.module.as_deref(), Some("app.zed"));
+        assert_eq!(zed.support, SupportLevel::ReadOnly);
     }
 
     #[test]
@@ -226,7 +269,7 @@ mod tests {
         hidden.no_display = true;
         let mut restricted = app("kitty.desktop", "Kitty");
         restricted.restricted_from_current = true;
-        let list = build_app_list(&[hidden, restricted], &[]);
+        let list = build_app_list(&[hidden, restricted], &[], &catalog());
         for entry in list.iter().filter(|e| e.app.is_some()) {
             assert!(
                 !entry.visible_as_supported(),
@@ -252,7 +295,7 @@ mod tests {
             evidence: Vec::new(),
             detail: None,
         };
-        let list = build_app_list(&apps, &[backend]);
+        let list = build_app_list(&apps, &[backend], &catalog());
         let entry = list
             .iter()
             .find(|e| e.identity == "alacritty.desktop")
@@ -266,12 +309,10 @@ mod tests {
             app("zzz.desktop", "Zeta"),
             app("alacritty.desktop", "Alacritty"),
         ];
-        let list = build_app_list(&apps, &[]);
+        let list = build_app_list(&apps, &[], &catalog());
         let names: Vec<&str> = list.iter().map(|e| e.display_name.as_str()).collect();
-        let mut sorted = names.clone();
-        sorted.sort_by_key(|n| n.to_lowercase());
         // Module-backed entries first, then by name.
         assert_eq!(names[0], "Alacritty");
-        assert!(names[1] == "Zeta" || names[1] == "Kitty" || names[1] == "MPV");
+        assert_eq!(names[1], "Kitty");
     }
 }

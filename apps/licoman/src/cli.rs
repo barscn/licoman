@@ -1,7 +1,7 @@
-//! Command-line surface: `--help`, `--version`, `--diagnostics`, and
+//! Command-line surface: `--help`, `--version`, `--diagnostics`, the
+//! Phase 04 module commands (`module validate`, `module schema`), and
 //! argument errors. Pure and unit tested; `main` maps the parsed outcome to
-//! stdout/stderr and exit codes. No external argument parser is introduced
-//! for three flags.
+//! stdout/stderr and exit codes. No external argument parser is introduced.
 
 /// The version string reported by `--version`.
 pub fn version_string() -> String {
@@ -23,6 +23,17 @@ pub fn help_text() -> String {
          OPTIONS:\n\
          \x20   -h, --help       Print this help and exit\n\
          \x20   -V, --version    Print version information and exit\n\
+         \x20   --diagnostics    Print the redacted environment diagnostics and exit\n\
+         \n\
+         MODULE COMMANDS:\n\
+         \x20   licoman module validate <path>...\n\
+         \x20       Read-only manifest linter: parses and validates module\n\
+         \x20       files (or *.toml inside directories) and reports located\n\
+         \x20       diagnostics plus applicability against this environment.\n\
+         \x20       Never modifies anything.\n\
+         \x20   licoman module schema\n\
+         \x20       Print the JSON Schema generated from Licoman's canonical\n\
+         \x20       module types (for editors and CI validation).\n\
          \n\
          ENVIRONMENT:\n\
          \x20   WAYLAND_DISPLAY, DISPLAY\n\
@@ -52,6 +63,10 @@ pub enum Parsed {
     Run,
     /// Run headless discovery and print the redacted diagnostics export.
     Diagnostics,
+    /// Validate module manifests (read-only linter); never modifies anything.
+    ModuleValidate(Vec<String>),
+    /// Print the JSON Schema for module manifests.
+    ModuleSchema,
     /// Print text to stdout and exit 0.
     PrintAndSucceed(String),
     /// Print text to stderr and exit 2.
@@ -69,9 +84,37 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Parsed {
         "-h" | "--help" => Parsed::PrintAndSucceed(help_text()),
         "-V" | "--version" => Parsed::PrintAndSucceed(version_string()),
         "--diagnostics" => Parsed::Diagnostics,
+        "module" => parse_module_subcommand(args.collect()),
         _ => Parsed::Fail(format!(
             "licoman: unrecognized argument '{arg}'\nTry 'licoman --help' for usage."
         )),
+    }
+}
+
+/// Parse `licoman module <subcommand> [args…]`.
+fn parse_module_subcommand(rest: Vec<String>) -> Parsed {
+    let mut rest = rest.into_iter();
+    match rest.next().as_deref() {
+        Some("validate") => {
+            let paths: Vec<String> = rest.collect();
+            if paths.is_empty() {
+                Parsed::Fail(
+                    "licoman: 'module validate' needs at least one manifest file or directory\n                     Usage: licoman module validate <path>..."
+                        .to_string(),
+                )
+            } else {
+                Parsed::ModuleValidate(paths)
+            }
+        }
+        Some("schema") => Parsed::ModuleSchema,
+        Some(other) => Parsed::Fail(format!(
+            "licoman: unknown module subcommand '{other}'\n             Try 'licoman module validate <path>...' or 'licoman module schema'."
+        )),
+        None => Parsed::Fail(
+            "licoman: 'module' needs a subcommand\n\
+             Usage: licoman module validate <path>... | licoman module schema"
+                .to_string(),
+        ),
     }
 }
 
@@ -118,6 +161,21 @@ mod tests {
             )
         );
         assert!(matches!(parse(args(&["extra"])), Parsed::Fail(_)));
+    }
+
+    #[test]
+    fn module_subcommands_parse() {
+        assert_eq!(parse(args(&["module", "schema"])), Parsed::ModuleSchema);
+        assert_eq!(
+            parse(args(&["module", "validate", "a.toml", "dir"])),
+            Parsed::ModuleValidate(vec!["a.toml".to_string(), "dir".to_string()])
+        );
+        assert!(matches!(parse(args(&["module"])), Parsed::Fail(_)));
+        assert!(matches!(
+            parse(args(&["module", "validate"])),
+            Parsed::Fail(_)
+        ));
+        assert!(matches!(parse(args(&["module", "bogus"])), Parsed::Fail(_)));
     }
 
     #[test]
