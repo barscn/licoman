@@ -254,7 +254,8 @@ fn reload_preserves_navigation_and_edits_for_surviving_ids() {
     );
 }
 
-/// Immediate-policy mock settings apply synchronously through the store.
+/// Immediate-policy mock settings apply on edit, completed by the apply
+/// pass (synchronous here; background in the UI — no unverified "Applied").
 #[test]
 fn immediate_policy_applies_on_edit() {
     const IMMEDIATE: &str = r#"
@@ -281,6 +282,8 @@ kind = "mock"
         id: "shared.immediate.demo.toggle".to_string(),
         value: SettingValue::Bool(true),
     });
+    assert!(matches!(report.outcome, Outcome::Accepted));
+    let report = store.apply_complete();
     assert!(matches!(report.outcome, Outcome::Applied(_)));
     let model = store.model("shared.immediate.demo.toggle").expect("model");
     assert_eq!(model.phase, crate::state::SettingPhase::Applied);

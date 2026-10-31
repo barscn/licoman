@@ -90,6 +90,26 @@ impl FileReadBackend {
         roots
     }
 
+    /// The user's config home this backend reads from (fixture-injectable).
+    /// Exposed to the write side for its crash-recovery temp sweep.
+    pub(crate) fn config_home(&self) -> &Path {
+        &self.config_home
+    }
+
+    /// Redact a path for logs and operation records (06_SAFE_WRITE_ENGINE.md
+    /// §6): home and config-home prefixes collapse to `~`; everything else
+    /// passes through (paths are metadata, never contents).
+    pub fn redact_path(&self, path: &str) -> String {
+        for prefix in [&self.home, &self.config_home] {
+            let prefix_str = prefix.to_string_lossy();
+            if let Some(rest) = path.strip_prefix(prefix_str.as_ref()) {
+                let rest = rest.trim_start_matches('/');
+                return format!("~/{rest}");
+            }
+        }
+        path.to_string()
+    }
+
     fn containment_error(id: &str, path: &Path) -> LicomanError {
         LicomanError::new(
             ErrorKind::Unavailable,
@@ -290,14 +310,15 @@ impl FileReadBackend {
     }
 
     /// Read one dotted key path out of a merged configuration, tracking
-    /// which loaded file last set it (the effective winner). Returns the
-    /// value plus everything the ReadResult envelope needs.
-    fn lookup_merged(
+    /// which loaded file last set it (the effective winner). Unlike
+    /// [`Self::read`], an absent key is a normal `value: None` result — the
+    /// write engine needs the distinction between "absent" and "unreadable".
+    fn probe_merged(
         &self,
         id: &str,
         root: &Path,
         key_path: &str,
-    ) -> Result<(SettingValue, ValueOrigin, SourceDetails, Vec<u8>), LicomanError> {
+    ) -> Result<FileKeyProbe, LicomanError> {
         let mut order: Vec<(PathBuf, DocumentMut)> = Vec::new();
         let mut chain: Vec<PathBuf> = Vec::new();
         let mut diagnostics: Vec<String> = Vec::new();
@@ -331,17 +352,6 @@ impl FileReadBackend {
             winner = Some((path.as_path(), !is_root, setting));
         }
 
-        let Some((winner_path, imported, value)) = winner else {
-            return Err(LicomanError::new(
-                ErrorKind::Unavailable,
-                "This setting is not present in the configuration. The application's \
-                 built-in default applies, but Licoman does not ship validated \
-                 defaults, so no value is shown."
-                    .to_string(),
-                format!("{id}: key {key_path:?} absent from {} file(s)", order.len()),
-            ));
-        };
-
         // Fingerprint over every contributing file (path + content), in
         // load order — any change to any file moves it.
         let mut fingerprint = Vec::new();
@@ -350,39 +360,154 @@ impl FileReadBackend {
             fingerprint.extend_from_slice(document.to_string().as_bytes());
         }
 
-        let origin = if winner_path.starts_with("/etc") {
-            ValueOrigin::System
-        } else {
-            ValueOrigin::User
-        };
-        let origin_note = if imported {
-            Some(format!(
-                "imported file ({} of {} merged files sets this value)",
-                order
-                    .iter()
-                    .position(|(p, _)| p == winner_path)
-                    .map(|i| i + 1)
-                    .unwrap_or(0),
-                order.len()
-            ))
-        } else if order.len() > 1 {
-            Some(format!(
-                "configuration file (last setter of {} merged files)",
-                order.len()
-            ))
-        } else {
-            Some("configuration file".to_string())
+        let (winner_path, imported, value) = match winner {
+            Some((path, imported, value)) => (Some(path), imported, Some(value)),
+            None => (None, false, None),
         };
 
-        let details = SourceDetails {
-            backend_kind: "file",
-            target: format!("{} :: {}", root.display(), key_path),
-            origin_note,
+        Ok(FileKeyProbe {
+            root: root.to_path_buf(),
+            winner: winner_path.map(Path::to_path_buf),
+            winner_position: winner_path
+                .and_then(|winner| order.iter().position(|(p, _)| p == winner)),
             imported,
+            value,
+            single_file: false,
+            files: order.len(),
+            fingerprint: fnv1a_fingerprint(&fingerprint),
             diagnostics,
-        };
-        Ok((value, origin, details, fingerprint))
+        })
     }
+
+    /// Resolve one key structurally. Unlike [`SettingsReadBackend::read`],
+    /// an absent key is a normal `value: None` result; unreadable files,
+    /// invalid TOML, containment escapes and unsupported types remain errors.
+    /// The write engine builds its pre-checks on this
+    /// (06_SAFE_WRITE_ENGINE.md §2.2) and `read` is defined on top of it, so
+    /// the two paths can never drift apart.
+    pub fn probe_key(
+        &self,
+        binding: &BackendBinding,
+        descriptor: &SettingDescriptor,
+    ) -> Result<FileKeyProbe, LicomanError> {
+        let BackendBinding::File {
+            path,
+            format,
+            key,
+            resolution,
+        } = binding
+        else {
+            return Err(LicomanError::new(
+                ErrorKind::Unavailable,
+                "This setting is not bound to a configuration file.",
+                format!("file backend got binding kind {:?}", binding.kind_name()),
+            ));
+        };
+        if *format != FileFormat::Toml {
+            return Err(LicomanError::new(
+                ErrorKind::Unavailable,
+                format!(
+                    "This configuration is a {format:?} file. Licoman reads TOML configurations \
+                     first; this format is recorded but not read yet."
+                ),
+                format!("unsupported file format {format:?} for {}", descriptor.id),
+            ));
+        }
+        let Some(key_path) = key else {
+            return Err(LicomanError::new(
+                ErrorKind::Unavailable,
+                "This setting does not name a configuration key, so it cannot be read.",
+                format!("file binding without key for {}", descriptor.id),
+            ));
+        };
+
+        let (root, single_file) = match resolution {
+            Some(FileResolution::Alacritty) => {
+                let Some(root) = self
+                    .alacritty_candidates()
+                    .into_iter()
+                    .find(|candidate| candidate.is_file())
+                else {
+                    return Err(LicomanError::new(
+                        ErrorKind::Unavailable,
+                        "No Alacritty configuration file was found. Alacritty runs on its \
+                         built-in defaults; Licoman shows no invented value."
+                            .to_string(),
+                        "alacritty: none of the documented search paths exist".to_string(),
+                    ));
+                };
+                (root, false)
+            }
+            _ => (self.config_home.join(path), true),
+        };
+        let canonical_root = self.validated(&descriptor.id, &root)?;
+
+        if single_file {
+            // Generic single-file binding: no import semantics are assumed.
+            let (document, bytes) = self.parse_document(&descriptor.id, &canonical_root)?;
+            let segments: Vec<&str> = key_path.split('.').collect();
+            let item = follow_key(document.as_table(), &segments);
+            if let Some(item) = item
+                && toml_value_to_setting(item).is_none()
+            {
+                return Err(LicomanError::new(
+                    ErrorKind::Unavailable,
+                    "The stored value of this setting has a type Licoman cannot read.",
+                    format!("key {key_path:?} type in {}", canonical_root.display()),
+                ));
+            }
+            let value = item.and_then(toml_value_to_setting);
+            let meta = std::fs::metadata(&canonical_root).ok();
+            let mut fingerprint = Vec::new();
+            fingerprint.extend_from_slice(canonical_root.display().to_string().as_bytes());
+            fingerprint.extend_from_slice(&bytes);
+            if let Some(modified) = meta.as_ref().and_then(|m| m.modified().ok()) {
+                fingerprint.extend_from_slice(
+                    format!("{:?}", modified.duration_since(std::time::UNIX_EPOCH)).as_bytes(),
+                );
+            }
+            return Ok(FileKeyProbe {
+                root: canonical_root.clone(),
+                winner: value.is_some().then(|| canonical_root.clone()),
+                winner_position: value.is_some().then_some(0),
+                imported: false,
+                value,
+                single_file: true,
+                files: 1,
+                fingerprint: crate::read::fnv1a_fingerprint(&fingerprint),
+                diagnostics: vec![format!("mtime: {:?}", meta.and_then(|m| m.modified().ok()))],
+            });
+        }
+
+        self.probe_merged(&descriptor.id, &canonical_root, key_path)
+    }
+}
+
+/// One key's structural resolution inside the authorized roots — what the
+/// write engine needs before it may touch anything (06_SAFE_WRITE_ENGINE.md
+/// §2): which file wins, whether the winner is an import, the current typed
+/// value (absent is normal) and the revision fingerprint.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileKeyProbe {
+    /// Canonical path of the root configuration file.
+    pub root: PathBuf,
+    /// Canonical path of the file that sets the key (`None` = absent
+    /// everywhere in the effective configuration).
+    pub winner: Option<PathBuf>,
+    /// Position of the winner in load order (diagnostics only).
+    pub winner_position: Option<usize>,
+    /// The winning value comes from an imported file rather than the root.
+    pub imported: bool,
+    /// The effective value; `None` = the key is absent.
+    pub value: Option<SettingValue>,
+    /// True when this was a single-file (no import semantics) resolution.
+    pub single_file: bool,
+    /// Number of files contributing to the effective configuration.
+    pub files: usize,
+    /// Fingerprint over every contributing file, same recipe as `read`.
+    pub fingerprint: String,
+    /// Collection diagnostics (import skips, cycles) — metadata only.
+    pub diagnostics: Vec<String>,
 }
 
 fn follow_key<'a>(table: &'a toml_edit::Table, segments: &[&str]) -> Option<&'a Item> {
@@ -398,7 +523,7 @@ fn follow_key<'a>(table: &'a toml_edit::Table, segments: &[&str]) -> Option<&'a 
     }
 }
 
-fn toml_value_to_setting(item: &Item) -> Option<SettingValue> {
+pub(crate) fn toml_value_to_setting(item: &Item) -> Option<SettingValue> {
     let value = item.as_value()?;
     Some(match value {
         toml_edit::Value::String(formatted) => SettingValue::Text(formatted.value().to_string()),
@@ -468,117 +593,80 @@ impl SettingsReadBackend for FileReadBackend {
         binding: &BackendBinding,
         descriptor: &SettingDescriptor,
     ) -> Result<ReadResult, LicomanError> {
+        let probe = self.probe_key(binding, descriptor)?;
         let BackendBinding::File {
-            path,
-            format,
-            key,
-            resolution,
+            key: Some(key_path),
+            ..
         } = binding
         else {
-            return Err(LicomanError::new(
-                ErrorKind::Unavailable,
-                "This setting is not bound to a configuration file.",
-                format!("file backend got binding kind {:?}", binding.kind_name()),
-            ));
-        };
-        if *format != FileFormat::Toml {
-            return Err(LicomanError::new(
-                ErrorKind::Unavailable,
-                format!(
-                    "This configuration is a {format:?} file. Licoman reads TOML configurations \
-                     first; this format is recorded but not read yet."
-                ),
-                format!("unsupported file format {format:?} for {}", descriptor.id),
-            ));
-        }
-        let Some(key_path) = key else {
             return Err(LicomanError::new(
                 ErrorKind::Unavailable,
                 "This setting does not name a configuration key, so it cannot be read.",
                 format!("file binding without key for {}", descriptor.id),
             ));
         };
-
-        let (root, single_file) = match resolution {
-            Some(FileResolution::Alacritty) => {
-                let Some(root) = self
-                    .alacritty_candidates()
-                    .into_iter()
-                    .find(|candidate| candidate.is_file())
-                else {
-                    return Err(LicomanError::new(
-                        ErrorKind::Unavailable,
-                        "No Alacritty configuration file was found. Alacritty runs on its \
-                         built-in defaults; Licoman shows no invented value."
-                            .to_string(),
-                        "alacritty: none of the documented search paths exist".to_string(),
-                    ));
-                };
-                (root, false)
-            }
-            _ => (self.config_home.join(path), true),
+        let Some(value) = probe.value else {
+            return Err(LicomanError::new(
+                ErrorKind::Unavailable,
+                "This setting is not present in the configuration. The application's \
+                 built-in default applies, but Licoman does not ship validated defaults."
+                    .to_string(),
+                format!(
+                    "{}: key {key_path:?} absent from {} file(s)",
+                    probe.root.display(),
+                    probe.files
+                ),
+            ));
         };
-        let canonical_root = self.validated(&descriptor.id, &root)?;
-
-        if single_file {
-            // Generic single-file binding: no import semantics are assumed.
-            let (document, bytes) = self.parse_document(&descriptor.id, &canonical_root)?;
-            let segments: Vec<&str> = key_path.split('.').collect();
-            let Some(item) = follow_key(document.as_table(), &segments) else {
-                return Err(LicomanError::new(
-                    ErrorKind::Unavailable,
-                    "This setting is not present in the configuration. The application's \
-                     built-in default applies, but Licoman does not ship validated defaults."
-                        .to_string(),
-                    format!("{:?}: key {key_path:?} absent", canonical_root.display()),
-                ));
-            };
-            let value = toml_value_to_setting(item).ok_or_else(|| {
-                LicomanError::new(
-                    ErrorKind::Unavailable,
-                    "The stored value of this setting has a type Licoman cannot read.",
-                    format!("key {key_path:?} type in {}", canonical_root.display()),
-                )
-            })?;
-            let meta = std::fs::metadata(&canonical_root).ok();
-            let mut fingerprint = Vec::new();
-            fingerprint.extend_from_slice(canonical_root.display().to_string().as_bytes());
-            fingerprint.extend_from_slice(&bytes);
-            if let Some(modified) = meta.as_ref().and_then(|m| m.modified().ok()) {
-                fingerprint.extend_from_slice(
-                    format!("{:?}", modified.duration_since(std::time::UNIX_EPOCH)).as_bytes(),
-                );
+        let origin = if probe
+            .winner
+            .as_ref()
+            .is_some_and(|winner| winner.starts_with("/etc"))
+        {
+            ValueOrigin::System
+        } else {
+            ValueOrigin::User
+        };
+        let details = if probe.single_file {
+            SourceDetails {
+                backend_kind: "file",
+                target: format!("{} :: {}", probe.root.display(), key_path),
+                origin_note: Some(
+                    "configuration file (single file; no import semantics)".to_string(),
+                ),
+                imported: false,
+                diagnostics: probe.diagnostics,
             }
-            return Ok(ReadResult {
-                value,
-                origin: ValueOrigin::User,
-                writable: Writable::No {
-                    reason: "Licoman can read this configuration but cannot change it yet."
-                        .to_string(),
-                },
-                freshness: Freshness::now(crate::read::fnv1a_fingerprint(&fingerprint)),
-                restart_effect: RestartEffect::App,
-                details: SourceDetails {
-                    backend_kind: "file",
-                    target: format!("{} :: {}", canonical_root.display(), key_path),
-                    origin_note: Some(
-                        "configuration file (single file; no import semantics)".to_string(),
-                    ),
-                    imported: false,
-                    diagnostics: vec![format!("mtime: {:?}", meta.and_then(|m| m.modified().ok()))],
-                },
-            });
-        }
-
-        let (value, origin, details, fingerprint) =
-            self.lookup_merged(&descriptor.id, &canonical_root, key_path)?;
+        } else {
+            let origin_note = if probe.imported {
+                Some(format!(
+                    "imported file ({} of {} merged files sets this value)",
+                    probe.winner_position.map(|p| p + 1).unwrap_or(0),
+                    probe.files
+                ))
+            } else if probe.files > 1 {
+                Some(format!(
+                    "configuration file (last setter of {} merged files)",
+                    probe.files
+                ))
+            } else {
+                Some("configuration file".to_string())
+            };
+            SourceDetails {
+                backend_kind: "file",
+                target: format!("{} :: {}", probe.root.display(), key_path),
+                origin_note,
+                imported: probe.imported,
+                diagnostics: probe.diagnostics,
+            }
+        };
         Ok(ReadResult {
             value,
             origin,
             writable: Writable::No {
                 reason: "Licoman can read this configuration but cannot change it yet.".to_string(),
             },
-            freshness: Freshness::now(fnv1a_fingerprint(&fingerprint)),
+            freshness: Freshness::now(probe.fingerprint),
             restart_effect: RestartEffect::App,
             details,
         })

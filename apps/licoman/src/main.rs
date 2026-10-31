@@ -3,6 +3,7 @@
 //! All domain logic lives in `licoman-core`; all rendering in `licoman-ui`.
 
 mod cli;
+mod writes_demo;
 
 use gpui_kit::{App, AppContext, KeyBinding, application, init};
 use licoman_core::prefs;
@@ -201,7 +202,19 @@ fn main() {
     // the Phase 05 read paths render deterministically (visual verification
     // only — the live run uses the real environment).
     let demo_name = std::env::var("LICOMAN_DEMO").unwrap_or_default();
-    let reads_demo = demo_name == "reads";
+    // Every reads* demo uses the fixture router — a demo must never read
+    // (or write) live host state (caught by the Phase 06 re-verification:
+    // `reads-apps`/`reads-power` silently used the live environment).
+    let reads_demo = matches!(demo_name.as_str(), "reads" | "reads-power" | "reads-apps");
+    let writes_demo = matches!(
+        demo_name.as_str(),
+        "writes" | "writes-conflict" | "writes-permission" | "writes-light"
+    );
+    let writes_env = if writes_demo {
+        Some(writes_demo::WritesEnv::create().expect("fixture write environment"))
+    } else {
+        None
+    };
     let module_provider = if demo_name != "empty" {
         let module_registry = licoman_core::modules::ModuleRegistry::load_builtin();
         for rejected in module_registry.rejected() {
@@ -236,6 +249,11 @@ fn main() {
                     )),
                 ),
             )
+        } else if writes_demo {
+            writes_env
+                .as_ref()
+                .expect("writes env")
+                .provider(module_registry.clone())
         } else {
             licoman_core::modules::ModuleProvider::new(module_registry.clone())
         });
@@ -267,7 +285,7 @@ fn main() {
                     licoman_ui::app_state::system_theme_mode(cx.window_appearance())
                 }
             };
-            if demo.starts_with("light") {
+            if demo.starts_with("light") || demo == "writes-light" {
                 initial_mode = gpui_kit::component::theme::ThemeMode::Light;
             }
             theme::install(cx, initial_mode);
@@ -294,7 +312,11 @@ fn main() {
             // the application directories for changes. The `reads` demo
             // keeps the arch-hyprland fixture environment but runs real
             // read passes against the fixture-backed router.
-            let demo_env = if demo == "reads" || demo == "reads-power" || demo == "reads-apps" {
+            let demo_env = if demo == "reads"
+                || demo == "reads-power"
+                || demo == "reads-apps"
+                || demo.starts_with("writes")
+            {
                 "arch-hyprland"
             } else {
                 demo.as_str()
@@ -304,12 +326,21 @@ fn main() {
                     // The flag must be set before the demo environment
                     // ingests: the ingest itself schedules the first read
                     // pass, and the demo-locked guard consults it.
-                    if demo.starts_with("reads") {
+                    if demo.starts_with("reads") || demo.starts_with("writes") {
                         state.set_reads_fixture_backed();
                     }
                     state.load_demo_environment(demo_env, cx);
                     if demo == "reads-power" {
                         state.dispatch(Command::SelectCategory(Some("Power".into())), cx);
+                    }
+                    if demo.starts_with("writes") {
+                        // The demo rows live in Shared/Power (fake service)
+                        // and Distribution (permission-held).
+                        if demo == "writes-permission" {
+                            state.dispatch(Command::SelectScope(Scope::Distribution), cx);
+                        } else {
+                            state.dispatch(Command::SelectCategory(Some("Power".into())), cx);
+                        }
                     }
                 });
             } else {
@@ -346,6 +377,79 @@ fn main() {
                                 },
                                 cx,
                             );
+                        });
+                    })
+                    .detach()
+                }
+                "writes" | "writes-conflict" | "writes-light" => {
+                    // Stage one service-backed edit (fake power-profiles
+                    // service) and one file-backed edit (temp fixture copy)
+                    // once the read pass published. The apply bar in the main
+                    // window shows both — including edits staged from the
+                    // Applications window (both windows share the store).
+                    let app_for_stage = app.clone();
+                    let demo_kind = demo.clone();
+                    cx.spawn(async move |cx| {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_millis(4000))
+                            .await;
+                        app_for_stage.update(cx, |state, cx| {
+                            state.dispatch(
+                                Command::Edit {
+                                    id: "shared.power.profile".into(),
+                                    value: licoman_core::SettingValue::Choice("performance".into()),
+                                },
+                                cx,
+                            );
+                            state.dispatch(
+                                Command::Edit {
+                                    id: "app.alacritty.font_size".into(),
+                                    value: licoman_core::SettingValue::Float(14.0),
+                                },
+                                cx,
+                            );
+                        });
+                        if demo_kind == "writes-conflict" {
+                            // The service state changes behind Licoman's back
+                            // (the fake daemon holds a different profile) and
+                            // the staged row learns about it: it shows the
+                            // conflict state with Reload/Compare — never an
+                            // overwrite. The service is genuinely mutated
+                            // first; the store notification follows.
+                            if let Some(env) = writes_env.as_ref() {
+                                env.inject_external_service_change();
+                            }
+                            app_for_stage.update(cx, |state, cx| {
+                                state.store.simulate_external_change(
+                                    "shared.power.profile",
+                                    licoman_core::SettingValue::Choice("power-saver".into()),
+                                );
+                                cx.emit(licoman_ui::app_state::AppEvent::SettingsChanged);
+                            });
+                        }
+                    })
+                    .detach();
+                }
+                "writes-permission" => {
+                    // The permission-held row ("System updates" — the catalog
+                    // keeps it read-only-controlled, so an edit attempt is a
+                    // NoOp) is shown in the distinct Permission-required
+                    // state; the authorize dialog explains the deny-by-default
+                    // broker. Edit-driven refusals reach this same phase
+                    // through the store when the control is editable.
+                    let app_for_stage = app.clone();
+                    cx.spawn(async move |cx| {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_millis(4000))
+                            .await;
+                        app_for_stage.update(cx, |state, _cx| {
+                            state
+                                .store
+                                .simulate_permission_required("distro.packages.updates");
+                        });
+                        app_for_stage.update(cx, |state, cx| {
+                            state.dispatch(Command::SelectCategory(Some("Packages".into())), cx);
+                            cx.emit(licoman_ui::app_state::AppEvent::SettingsChanged);
                         });
                     })
                     .detach();

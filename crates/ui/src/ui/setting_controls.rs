@@ -581,6 +581,13 @@ pub fn phase_status_text(model: &SettingModel) -> Option<String> {
                 .unwrap_or_else(|| "Failed".to_string()),
         ),
         SettingPhase::ExternalConflict => Some("Changed outside Licoman".to_string()),
+        SettingPhase::PermissionRequired => Some(
+            model
+                .error
+                .as_ref()
+                .map(|e| e.user_message.clone())
+                .unwrap_or_else(|| "Permission required".to_string()),
+        ),
         SettingPhase::Idle => match model.read_meta.as_ref() {
             // Editable rows keep their clean look; the origin line is for
             // rows Licoman reads but cannot change.

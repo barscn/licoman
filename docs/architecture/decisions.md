@@ -429,3 +429,101 @@ real backends are refused unconditionally (unchanged from Phase 04), and
 **Why:** the plan's stop condition — "Do not enable real writes merely
 because a read was successful" — is enforced by the envelope, not by
 convention.
+
+## D43 — The write policy is core-derived, never module-declared
+
+**Decision:** the effective `WritePolicy` (`read_only | immediate | staged |
+confirmation | privileged`) is computed by the core
+(`write::derive_write_policy`) from the validated descriptor plus the
+module's risk/auth metadata: any authorization requirement ⇒ `privileged`;
+read-only controls ⇒ `read_only`; high declared risk ⇒ at least
+`confirmation`; otherwise the descriptor's apply mode. Both the store and
+the engine enforce the derived policy (defense in depth). A new
+`SettingPhase::PermissionRequired` gives denied rows a distinct, truthful
+state with the honest authorize dialog.
+
+**Why:** 06 §1 — "A module cannot arbitrarily mark itself safe and bypass
+enforcement. Backend + core own the policy." A manifest field that decided
+the policy would be a trust hole; derivation makes the conservative choice
+unconditional.
+
+## D44 — Fixture-only writes through an explicit engine attachment
+
+**Decision:** `ModuleProvider` carries an `Option<Arc<WriteEngine>>`. `None`
+(live providers) keeps the Phase 05 hard boundary: every non-mock write is
+refused. The engine attaches only via `with_fixture_write_engine`, which
+also flips the registry into `fixture_writes` mode (descriptors keep their
+natural controls, read envelopes report `Writable::Yes` for file/dbus
+families). GSettings stays fail-closed even in fixture mode — the engine
+refuses it with a Phase 07 gate. Demos copy committed fixtures into a temp
+tree and delete it on exit; no live environment ever has an engine.
+
+**Why:** 06's hard boundary ("No actual external application, DE,
+distribution or system writes in Phase 06") must be enforced by
+construction, not by discipline; a provider *without* an engine cannot
+write, whatever calls it.
+
+## D45 — Writes run off the UI thread via a generation-guarded write pass
+
+**Decision:** immediate edits, staged applies, retry, undo, reset and
+confirm all end in stashed `ChangeIntent`s + rows in `Applying`; the
+adapter's write pass (visible 500 ms interval first, then background
+executor, generation-guarded like the Phase 05 read pass) executes them
+through `Provider::write_intent` and publishes via the single
+`Store::publish_apply` mapper. The synchronous `Store::apply_complete`
+remains for tests and mock-only flows and uses the same mapper.
+
+**Why:** Phase 05 established "no I/O on the UI thread"; real file/service
+writes would have violated it. One mapper for both execution paths means
+the phase rule — "UI never reports Applied before the backend verifies the
+result" — has exactly one implementation.
+
+## D46 — Honesty rules for service outcomes and multi-setting workflows
+
+**Decision:** service writes verify by typed readback; a mismatch is an
+`ExternalConflict` with the service authoritative, never an "Applied".
+Persistence is reported as `persistent | runtime_only | unknown` and shown
+verbatim. Timeouts say the change *may* have been applied and never
+auto-retry. There is no global transaction across settings: each successful
+write records its compensation (the before-value, bounded undo history);
+compensation executes only on explicit user action, and partial success is
+rendered per row.
+
+**Why:** 06 §3 — "A successful D-Bus reply does not necessarily prove
+persistence" and "no global atomic transaction … best-effort compensation
+log and clear partial-success UI instead of claiming all-or-nothing
+semantics."
+
+## D47 — In-root symlinks are followed on write; the link is preserved
+
+**Decision:** the write target is always the **canonical** path inside the
+approved roots. A symlink at the requested path that resolves inside the
+roots is therefore followed: the canonical file is updated through the
+normal backup/stage/rename discipline and the user's link itself is
+preserved (never replaced by a regular file). Links resolving **outside**
+the roots are refused by containment before anything is read or written.
+
+**Why:** refusing in-root links outright would break the common
+managed-dotfile pattern (config paths linking into a dotfiles directory);
+writing through them is bounded by the same containment checks as any other
+write. Residual risk (Licoman may modify a file reachable through an
+approved-root link) is recorded in `docs/security/threat-model.md` and must
+be revisited before Phase 07 live writes.
+
+## D48 — Backups, undo and reset are bounded and disclosed
+
+**Decision:** every modifying file write backs up only the affected file
+under `<data-root>/backups/<setting>/` (`0700`/`0600`, retention 10, pruned
+oldest-first). Undo history in the store is bounded (32) and per-setting;
+undo is offered only while the original value is known and still absent
+from the source being overwritten — and undo is an inverse intent through
+the same engine path, so it inherits conflict checks and backups. Reset
+semantics are backend-declared: file backends delete the user's override
+(disclosed as such), mock/service backends write the declared literal
+default (also disclosed). The engine's operation log records ids, backend
+kind, redacted target, outcome and elapsed time — bounded at 100, never
+values or contents (asserted by a planted-secret test).
+
+**Why:** 06 §2.7 (bounded, private, target-only backups), §5 (undo only
+when actually possible; reset must disclose), §6 (bounded redacted
+history).

@@ -48,6 +48,9 @@ pub struct AppsWindow {
     resync_needed: bool,
     /// Set when module applicability changed; rebuild, don't just sync.
     rebuild_needed: bool,
+    /// True while background rows are still unread; the transition to
+    /// all-read triggers one control rebuild.
+    had_pending_reads: bool,
     _subscriptions: Vec<Subscription>,
     _appearance_sub: Option<Subscription>,
 }
@@ -79,6 +82,14 @@ impl AppsWindow {
                 match event {
                     AppEvent::PreferencesChanged => cx.notify(),
                     AppEvent::SettingsChanged => {
+                        // The first read pass moves rows from Unknown to
+                        // read (and, in fixture-write mode, to writable):
+                        // the control set must be rebuilt then.
+                        let pending = this.app.read(cx).store.background_rows_pending();
+                        if this.had_pending_reads && !pending {
+                            this.rebuild_needed = true;
+                        }
+                        this.had_pending_reads = pending;
                         this.resync_needed = true;
                         cx.notify();
                     }
@@ -136,6 +147,7 @@ impl AppsWindow {
             controls,
             resync_needed: false,
             rebuild_needed: false,
+            had_pending_reads: true,
             _subscriptions: subscriptions,
             _appearance_sub: Some(appearance_sub),
         }

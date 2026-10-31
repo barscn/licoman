@@ -51,7 +51,7 @@ for c in json.load(sys.stdin):
   sleep 0.4
   hyprctl dispatch resizewindowpixel "exact 1160 760,address:$addr" >/dev/null
   hyprctl dispatch movewindowpixel "exact 40 40,address:$addr" >/dev/null
-  sleep 0.9
+  sleep "$sleep_s"
   local geo=$(hyprctl -j clients | python3 -c "
 import json,sys
 for c in json.load(sys.stdin):

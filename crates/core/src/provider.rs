@@ -6,9 +6,13 @@
 //! run on a background executor (file, GSettings, D-Bus).
 
 use crate::descriptor::SettingDescriptor;
-use crate::error::LicomanError;
+use crate::error::{ErrorKind, LicomanError};
 use crate::read::ReadResult;
 use crate::value::SettingValue;
+use crate::write::{ApplyOutcome, ChangeIntent, ResetSupport};
+
+/// The declared risk of a setting, refined by the owning module.
+pub use crate::modules::def::RiskLevel;
 
 /// What a provider (or one of its settings) can do. Fail-closed: everything
 /// defaults to false.
@@ -110,4 +114,59 @@ pub trait Provider {
     /// the store consults [`Provider::probe`] capabilities first so this is
     /// only reached when a write is advertised.
     fn write(&self, id: &str, value: &SettingValue) -> Result<(), LicomanError>;
+
+    /// Execute one typed change intent through the safe write path
+    /// (06_SAFE_WRITE_ENGINE.md §1). The result carries the backend's own
+    /// outcome plus the verification read the store needs before it may
+    /// report "Applied" — the UI never reports success before the backend
+    /// (or this verification read) confirms the result.
+    ///
+    /// The default is the legacy in-memory path: plain write, best-effort
+    /// readback, outcome unverified. Engine-backed providers override it
+    /// with the full conflict-checked, backed-up, verified pipeline.
+    fn write_intent(&self, intent: &ChangeIntent) -> Result<WriteOutcome, LicomanError> {
+        let value = intent.change.value().ok_or_else(|| {
+            LicomanError::new(
+                ErrorKind::Validation,
+                "This change removes an override, which this source cannot express.",
+                format!(
+                    "RemoveOverride on legacy write path for {}",
+                    intent.setting_id
+                ),
+            )
+        })?;
+        self.write(&intent.setting_id, value)?;
+        let (verification, verification_error) = match self.read_detailed(&intent.setting_id) {
+            Ok(result) => (Some(result), None),
+            Err(error) => (None, Some(error)),
+        };
+        Ok(WriteOutcome {
+            outcome: ApplyOutcome::mock_unverified(),
+            verification,
+            verification_error,
+        })
+    }
+
+    /// The owning module's declared risk (refines the write policy). Default:
+    /// low — hand-built descriptors without module provenance.
+    fn write_risk(&self, _id: &str) -> RiskLevel {
+        RiskLevel::Low
+    }
+
+    /// How (and whether) this setting can be reset to its default. `None` =
+    /// not offered; the disclosure tells the user what a reset concretely
+    /// does (06_SAFE_WRITE_ENGINE.md §5).
+    fn reset_support(&self, _id: &str) -> Option<ResetSupport> {
+        None
+    }
+}
+
+/// What one write attempt produced: the backend outcome plus the verification
+/// read (or its failure). The store maps this onto lifecycle phases and never
+/// shows "Applied" without a verification that actually matched.
+#[derive(Debug, Clone)]
+pub struct WriteOutcome {
+    pub outcome: ApplyOutcome,
+    pub verification: Option<ReadResult>,
+    pub verification_error: Option<LicomanError>,
 }

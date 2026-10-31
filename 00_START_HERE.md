@@ -4,17 +4,22 @@
 for Linux configuration, built with **Rust + GPUI + GPUI Kit**. No Electron,
 no browser UI, no embedded web view.
 
-> **Status: Phase 05 (read-only native configuration backends) implemented.**
-> The catalog is declarative (Phase 04) and the real backends now **read**:
-> GSettings values come from the platform's own schema/dconf databases,
-> Alacritty-style TOML configs are read with the documented search paths and
-> `general.import` merge, and power profiles read over D-Bus (zbus) — every
-> value carries typed origin, freshness and source details, and nothing is
-> ever written (writes remain Phase 06). Licoman only ever writes its own
-> preferences file. See
-> [docs/handoffs/PHASE_05_REPORT.md](docs/handoffs/PHASE_05_REPORT.md),
-> [docs/architecture/backends.md](docs/architecture/backends.md) and
-> [docs/architecture/decisions.md](docs/architecture/decisions.md) (D38–D42).
+> **Status: Phase 06 (safe write engine) implemented — fixture-only.**
+> The catalog is declarative (Phase 04) and the real backends **read**
+> (GSettings/dconf, TOML+imports, D-Bus) with typed origin, freshness and
+> source details (Phase 05). Phase 06 adds the safe write engine: typed
+> change requests, core-derived apply policies (read-only / immediate /
+> staged / confirmation / privileged), a deny-by-default privilege broker,
+> conflict-checked formatting-preserving file edits with bounded private
+> backups and atomic staging, a fake D-Bus service path with honest
+> persistence, undo/reset with disclosure, and the full adversarial test
+> matrix. **Writes exist only for the fixture demos** (a throwaway temp
+> copy of the test fixtures) — a live run still writes nothing but
+> Licoman's own preferences file. See
+> [docs/handoffs/PHASE_06_REPORT.md](docs/handoffs/PHASE_06_REPORT.md),
+> [docs/architecture/write-engine.md](docs/architecture/write-engine.md),
+> [docs/security/threat-model.md](docs/security/threat-model.md) and
+> [docs/architecture/decisions.md](docs/architecture/decisions.md) (D43–D48).
 
 ## Developer commands
 
@@ -63,6 +68,10 @@ diagnostic; domain tests run fine headless.
 | `reads` | Phase 05 read backends on fixture data: real GSettings values with origin lines, plus the Source details dialog |
 | `reads-power` | The power-profiles service absent: truthful per-row unavailability |
 | `reads-apps` | Applications window: Alacritty rows read from the fixture TOML config |
+| `writes` | Phase 06 safe write engine on a temp fixture copy + fake service: staged edits, apply bar (nothing outside the temp dir is touched) |
+| `writes-conflict` | A staged row changed externally: conflict state with Reload/Compare, no overwrite |
+| `writes-permission` | A permission-held row: lock, honest authorize dialog (deny-by-default broker) |
+| `writes-light` | Light theme with the Phase 06 write states visible (theme-while-dialog verification) |
 
 ```sh
 LICOMAN_DEMO=apps cargo run -p licoman
@@ -112,6 +121,10 @@ tests/tools/         # dev verification harnesses (WIP Wayland key injector)
    read-only environment discovery works (sources, precedence, limits).
 5. [docs/architecture/backends.md](docs/architecture/backends.md) — the
    Phase 05 read-only backends (GSettings/dconf, TOML+imports, D-Bus).
+6. [docs/architecture/write-engine.md](docs/architecture/write-engine.md) —
+   the Phase 06 safe write engine (policies, conflict checks, backups).
+7. [docs/security/threat-model.md](docs/security/threat-model.md) — assets,
+   threats and mitigations for the write path.
 5. [docs/handoffs/PHASE_03_REPORT.md](docs/handoffs/PHASE_03_REPORT.md) —
    what this phase did and how it was verified.
 5. The authoritative execution plan is the author's document pack

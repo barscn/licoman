@@ -171,6 +171,7 @@ fn mock_write_failure_lands_in_failed_with_retry_and_revert() {
 
     // Retry runs the same failing write and stays Failed.
     store.dispatch(Command::Retry { id: "t.x".into() });
+    store.apply_complete();
     assert_eq!(current_phase(&store, "t.x"), SettingPhase::Failed);
 
     // Revert gives up on the edit.
@@ -260,7 +261,7 @@ fn readback_mismatch_is_surfaced_as_conflict_not_success() {
 // ---- immediate vs staged apply metadata ---------------------------------------
 
 #[test]
-fn immediate_mode_applies_synchronously_on_edit() {
+fn immediate_mode_applies_on_edit_then_complete() {
     let fixture = MockSettingFixture::new(
         {
             let mut d = SettingDescriptor::new(
@@ -282,11 +283,20 @@ fn immediate_mode_applies_synchronously_on_edit() {
         id: "t.i".into(),
         value: SettingValue::Bool(true),
     });
+    // Phase 06: an immediate edit stages a write intent — the row is
+    // Applying until the write pass executes it (in the UI: off the UI
+    // thread; here: synchronously). No "Applied" is claimed before the
+    // verified readback.
+    assert_eq!(report.outcome, Outcome::Accepted);
+    assert_eq!(store.model("t.i").unwrap().phase, SettingPhase::Applying);
+    let report = store.apply_complete();
     assert_eq!(report.outcome, Outcome::Applied(vec!["t.i".to_string()]));
     let model = store.model("t.i").unwrap();
     assert_eq!(model.phase, SettingPhase::Applied);
     assert_eq!(model.readback, Readback::Confirmed);
     assert!(!store.applying());
+    // The applied change is undoable while the source still holds it.
+    assert!(store.undo_available("t.i"));
 }
 
 #[test]
@@ -309,11 +319,12 @@ fn immediate_mode_failure_is_reported_without_touching_the_source() {
     )
     .fail_writes();
     let mut store = single_store(fixture);
-    let report = store.dispatch(Command::Edit {
+    store.dispatch(Command::Edit {
         id: "t.i".into(),
         value: SettingValue::Bool(true),
     });
-    assert!(matches!(report.outcome, Outcome::Applied(_)));
+    let report = store.apply_complete();
+    assert!(matches!(report.outcome, Outcome::NoOp));
     let model = store.model("t.i").unwrap();
     assert_eq!(model.phase, SettingPhase::Failed);
     assert_eq!(model.error.as_ref().unwrap().kind, ErrorKind::WriteFailed);

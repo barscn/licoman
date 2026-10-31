@@ -93,6 +93,13 @@ pub struct ModuleRegistry {
     descriptors: Vec<SettingDescriptor>,
     /// Facts applicability was last evaluated against (None = pending).
     facts: Option<EnvironmentFacts>,
+    /// Demo-only flag: descriptors keep their natural (editable) controls
+    /// for non-mock backends, so the fixture-backed write engine can be
+    /// exercised end to end. The provider enables it **only** when an
+    /// engine over injected fixture roots is attached; live providers never
+    /// set it, and the hard boundary for real backends stays in
+    /// [`ModuleProvider::write`] (fail-closed).
+    fixture_writes: bool,
 }
 
 impl ModuleRegistry {
@@ -200,11 +207,26 @@ impl ModuleRegistry {
         for (module_index, module) in self.modules.iter().enumerate() {
             for (setting_index, setting) in module.def.settings.iter().enumerate() {
                 let full_id = module.def.full_setting_id(setting);
-                self.descriptors.push(descriptor_for(module, setting));
+                self.descriptors
+                    .push(descriptor_for(module, setting, self.fixture_writes));
                 self.setting_index
                     .insert(full_id, (module_index, setting_index));
             }
         }
+    }
+
+    /// Phase 06 demo-only: keep the natural (editable) controls for
+    /// non-mock backends so the fixture-backed write engine can be exercised
+    /// end to end. Returns whether descriptors were rebuilt. Never called by
+    /// live providers — real backends stay read-only there regardless of
+    /// this flag, enforced again at write time.
+    pub fn enable_fixture_writes(&mut self) -> bool {
+        if self.fixture_writes {
+            return false;
+        }
+        self.fixture_writes = true;
+        self.finish();
+        true
     }
 
     // ---- environment -------------------------------------------------------
@@ -382,7 +404,11 @@ fn provenance_lines(def: &ModuleDefinition) -> Vec<String> {
 /// Convert one setting definition into the descriptor the existing store and
 /// rendering paths consume. Structural only — environment-dependent
 /// availability lives in [`ModuleRegistry::setting_status`].
-pub fn descriptor_for(module: &LoadedModule, setting: &SettingDefinition) -> SettingDescriptor {
+pub fn descriptor_for(
+    module: &LoadedModule,
+    setting: &SettingDefinition,
+    fixture_writes: bool,
+) -> SettingDescriptor {
     let def = &module.def;
     let full_id = def.full_setting_id(setting);
 
@@ -424,9 +450,11 @@ pub fn descriptor_for(module: &LoadedModule, setting: &SettingDefinition) -> Set
         }
     };
 
-    // Non-mock backends render read-only this phase (truthful, hard
-    // boundary: this build never writes them).
-    let (control, apply_mode) = if !setting.backend.is_mock() {
+    // Non-mock backends render read-only (truthful, hard boundary: this
+    // build never writes them live). The Phase 06 fixture-write demo mode
+    // keeps natural controls so the engine over injected fixture roots can
+    // be exercised — real backends still refuse at write time.
+    let (control, apply_mode) = if !setting.backend.is_mock() && !fixture_writes {
         (Control::ReadOnly, ApplyMode::Staged)
     } else {
         (control, apply_mode)

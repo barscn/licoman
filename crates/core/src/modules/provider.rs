@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use super::def::ApplyPolicy;
+use super::def::BackendBinding;
 use super::registry::ModuleRegistry;
 use crate::descriptor::SettingDescriptor;
 use crate::error::{ErrorKind, LicomanError};
@@ -49,6 +50,11 @@ pub struct ModuleProvider {
     registry: Arc<Mutex<ModuleRegistry>>,
     written: Arc<Mutex<HashMap<String, SettingValue>>>,
     router: BackendRouter,
+    /// Present only in the Phase 06 fixture-write mode: the engine writes
+    /// file/service targets under injected fixture roots with a
+    /// deny-by-default privilege broker. `None` (live providers) means
+    /// every non-mock write is refused, unchanged from Phase 05.
+    engine: Option<std::sync::Arc<crate::write::WriteEngine>>,
 }
 
 impl ModuleProvider {
@@ -63,6 +69,29 @@ impl ModuleProvider {
             registry,
             written: Arc::new(Mutex::new(HashMap::new())),
             router,
+            engine: None,
+        }
+    }
+
+    /// Phase 06 fixture-write mode: route non-mock writes through the safe
+    /// write engine (file/service backends over **injected fixture roots**,
+    /// deny-by-default privilege broker). The registry's descriptors keep
+    /// their natural controls so the flows are exercisable end to end.
+    /// Live environments never construct this.
+    pub fn with_fixture_write_engine(
+        registry: Arc<Mutex<ModuleRegistry>>,
+        router: BackendRouter,
+        engine: crate::write::WriteEngine,
+    ) -> Self {
+        {
+            let mut locked = registry.lock().expect("registry lock");
+            locked.enable_fixture_writes();
+        }
+        Self {
+            registry,
+            written: Arc::new(Mutex::new(HashMap::new())),
+            router,
+            engine: Some(std::sync::Arc::new(engine)),
         }
     }
 
@@ -232,7 +261,155 @@ impl Provider for ModuleProvider {
                 .cloned()
                 .ok_or_else(|| self.setting_error(id, "This setting is not registered.".into()))?
         };
-        self.router.read(&backend, &descriptor)
+        let mut result = self.router.read(&backend, &descriptor)?;
+        // Fixture-write mode: the engine can write this family, so the
+        // envelope must not claim read-only. GSettings stays fail-closed —
+        // the engine refuses it (live dconf writes are Phase 07).
+        let engine_backed = self.engine.is_some()
+            && matches!(
+                backend,
+                BackendBinding::File { .. } | BackendBinding::DBus { .. }
+            );
+        if engine_backed {
+            result.writable = Writable::Yes;
+        }
+        Ok(result)
+    }
+
+    fn write_risk(&self, id: &str) -> crate::provider::RiskLevel {
+        let registry = self.registry.lock().expect("registry lock");
+        registry
+            .setting(id)
+            .map(|(_def, setting)| setting.risk)
+            .unwrap_or(crate::provider::RiskLevel::Low)
+    }
+
+    fn write_intent(
+        &self,
+        intent: &crate::write::ChangeIntent,
+    ) -> Result<crate::provider::WriteOutcome, LicomanError> {
+        let id = &intent.setting_id;
+        let (backend, risk) = {
+            let registry = self.registry.lock().expect("registry lock");
+            registry
+                .setting_status(id)
+                .map_err(|reason| self.setting_error(id, reason))?;
+            let (_def, setting) = registry
+                .setting(id)
+                .ok_or_else(|| self.setting_error(id, "This setting is not registered.".into()))?;
+            (setting.backend.clone(), setting.risk)
+        };
+        if backend.is_mock() {
+            // Mock: legacy in-memory write; the verification readback gives
+            // the store its confirmation.
+            let value = intent.change.value().ok_or_else(|| {
+                LicomanError::new(
+                    ErrorKind::Validation,
+                    "A mock value cannot be removed; reset writes the declared default.",
+                    format!("RemoveOverride on mock binding for {id}"),
+                )
+            })?;
+            Provider::write(self, id, value)?;
+            let verification = self.read_detailed(id)?;
+            return Ok(crate::provider::WriteOutcome {
+                outcome: crate::write::ApplyOutcome::mock_unverified(),
+                verification: Some(verification),
+                verification_error: None,
+            });
+        }
+        let Some(engine) = &self.engine else {
+            // The hard boundary, unchanged from Phase 05: no manifest-
+            // declared backend is ever written without the fixture engine.
+            return Err(LicomanError::new(
+                ErrorKind::WriteFailed,
+                format!(
+                    "Licoman does not write {} backends in this build. Writes are \
+                     gated behind the safe write engine (Phase 06). Nothing was \
+                     modified.",
+                    backend.kind_name()
+                ),
+                format!("write refused for non-mock binding on {id:?}"),
+            ));
+        };
+        let descriptor = {
+            let registry = self.registry.lock().expect("registry lock");
+            registry
+                .descriptors()
+                .iter()
+                .find(|d| d.id == *id)
+                .cloned()
+                .ok_or_else(|| self.setting_error(id, "This setting is not registered.".into()))?
+        };
+        let request = crate::write::ChangeRequest::resolve(&descriptor, &backend, intent, risk);
+        let outcome = engine.apply(&request, &descriptor)?;
+        // Fresh verification read: the store publishes this as the row's new
+        // provenance (origin, fingerprint) so the next change re-checks the
+        // current revision.
+        let (verification, verification_error) = match self.read_detailed(id) {
+            Ok(result) => (Some(result), None),
+            Err(error) => (None, Some(error)),
+        };
+        Ok(crate::provider::WriteOutcome {
+            outcome,
+            verification,
+            verification_error,
+        })
+    }
+
+    fn reset_support(&self, id: &str) -> Option<crate::write::ResetSupport> {
+        use crate::write::{Change, ResetDisclosure, ResetSupport};
+        let (backend, default, kind) = {
+            let registry = self.registry.lock().expect("registry lock");
+            let (_def, setting) = registry.setting(id)?;
+            (
+                setting.backend.clone(),
+                setting.default.clone(),
+                setting.kind,
+            )
+        };
+        let declared_default = default.and_then(|value| {
+            let kind = kind?;
+            super::registry::manifest_value_to_setting_value(&value, kind)
+        });
+        match (&backend, &self.engine) {
+            (BackendBinding::File { .. }, Some(_engine)) => {
+                let key = match &backend {
+                    BackendBinding::File { key: Some(key), .. } => key.clone(),
+                    _ => return None,
+                };
+                Some(ResetSupport {
+                    disclosure: ResetDisclosure::DeletesOverride { target: key },
+                    default_value: None,
+                    kind: Change::RemoveOverride,
+                })
+            }
+            (BackendBinding::DBus { .. }, Some(_engine)) => Some(ResetSupport {
+                disclosure: match &declared_default {
+                    Some(value) => ResetDisclosure::WritesLiteral {
+                        value: value.display(),
+                    },
+                    None => ResetDisclosure::NotPossible {
+                        reason: "the module declares no default for this service setting"
+                            .to_string(),
+                    },
+                },
+                default_value: declared_default.clone(),
+                kind: Change::Set(declared_default?),
+            }),
+            (BackendBinding::Mock, _) => Some(ResetSupport {
+                disclosure: match &declared_default {
+                    Some(value) => ResetDisclosure::WritesLiteral {
+                        value: value.display(),
+                    },
+                    None => ResetDisclosure::NotPossible {
+                        reason: "the module declares no default".to_string(),
+                    },
+                },
+                default_value: declared_default.clone(),
+                kind: Change::Set(declared_default?),
+            }),
+            _ => None,
+        }
     }
 
     fn write(&self, id: &str, value: &SettingValue) -> Result<(), LicomanError> {

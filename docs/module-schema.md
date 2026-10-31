@@ -119,6 +119,20 @@ are data, not one opaque "incompatible".
 | `availability` | table | no | Per-setting predicate: `desktop`, `distro`, `app`, `backend` — all present fields must hold. |
 | `backend` | table | yes | The data-only binding; see below. |
 
+### Phase 06 write semantics (how `policy`/`risk`/`required_auth` are enforced)
+
+The manifest's `policy` field is an **input**, never the decision. The core
+derives the effective write policy: any `required_auth` ⇒ `privileged`
+(refused by the deny-by-default broker — a declaration is not
+authorization); a read-only control ⇒ `read_only`; `risk = "high"` ⇒ at
+least `confirmation` (Apply opens a confirmation dialog showing effect and
+target); otherwise the declared policy's staging applies. Every write —
+apply, undo, reset — flows through the safe write engine
+(`docs/architecture/write-engine.md`): conflict-checked against a re-read
+of the source, backed up, verified by readback, and reported with honest
+persistence. In this build the engine exists only for the fixture demos; a
+live run never writes.
+
 ### Backend bindings (closed allowlist)
 
 ```toml

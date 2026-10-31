@@ -37,6 +37,25 @@ pub enum Command {
     Reload {
         id: String,
     },
+    /// Undo the last applied change for one setting, restoring the recorded
+    /// before-value through the same safe write path. Only offered while the
+    /// original state is actually known
+    /// (06_SAFE_WRITE_ENGINE.md §5).
+    Undo {
+        id: String,
+    },
+    /// Reset one setting to its default. The concrete semantics (deleting a
+    /// user override vs writing a literal declared default) come from the
+    /// backend and are disclosed to the user before this command is sent.
+    ResetToDefault {
+        id: String,
+    },
+    /// Apply one staged change whose policy demands explicit confirmation.
+    /// The confirmation dialog showed effect and target first; this is the
+    /// user's explicit yes.
+    ConfirmApply {
+        id: String,
+    },
     /// Main-window navigation.
     SelectScope(Scope),
     SelectCategory(Option<String>),

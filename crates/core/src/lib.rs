@@ -46,6 +46,7 @@ pub mod search;
 pub mod state;
 pub mod value;
 pub mod window_sessions;
+pub mod write;
 
 pub use command::{Command, DispatchReport, Outcome};
 pub use descriptor::{ApplyMode, Control, Scope, SettingDescriptor};
@@ -56,6 +57,10 @@ pub use registry::Registry;
 pub use state::{Readback, SettingPhase};
 pub use value::{SettingType, SettingValue};
 pub use window_sessions::WindowRole;
+pub use write::{
+    ApplyOutcome, ChangeIntent, ChangeRequest, Persistence, ResetDisclosure, ResetSupport,
+    WritePolicy,
+};
 
 /// Version of Licoman's in-memory settings type definitions (descriptors,
 /// values, phases). Bump when a change would make persisted or exchanged

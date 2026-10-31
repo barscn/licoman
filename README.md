@@ -4,17 +4,18 @@
 
 Built with **Rust + GPUI + GPUI Kit**. No Electron, no browser UI, no embedded web view.
 
-> **Status: Phase 05 (read-only native configuration backends) implemented.**
-> The catalog is declarative (Phase 04) and the real backends now **read**:
-> GSettings values come from the platform's own schema/dconf databases,
-> Alacritty-style TOML configs are read with the documented search paths and
-> `general.import` merge, and power profiles read over D-Bus (zbus) — every
-> value carries typed origin, freshness and source details, and nothing is
-> ever written (writes remain Phase 06). Licoman only ever writes its own
-> preferences file. See
-> [docs/handoffs/PHASE_05_REPORT.md](docs/handoffs/PHASE_05_REPORT.md),
-> [docs/architecture/backends.md](docs/architecture/backends.md) and
-> [docs/architecture/decisions.md](docs/architecture/decisions.md) (D38–D42).
+> **Status: Phase 06 (safe write engine) implemented — fixture-only.**
+> Typed change requests, core-derived apply policies (read-only / immediate
+> / staged / confirmation / privileged), a deny-by-default privilege broker,
+> conflict-checked formatting-preserving file edits with bounded private
+> backups and atomic staging, a fake D-Bus service path with honest
+> persistence, and undo/reset with disclosure. **Writes exist only in the
+> fixture demos** (a throwaway temp copy); a live run still writes nothing
+> but Licoman's own preferences file. See
+> [docs/handoffs/PHASE_06_REPORT.md](docs/handoffs/PHASE_06_REPORT.md),
+> [docs/architecture/write-engine.md](docs/architecture/write-engine.md),
+> [docs/security/threat-model.md](docs/security/threat-model.md) and
+> [docs/architecture/decisions.md](docs/architecture/decisions.md) (D43–D48).
 
 ## Principles (non-negotiable)
 

@@ -46,13 +46,18 @@ pub fn help_text() -> String {
          \x20       Development hook that opens a deterministic screen for\n\
          \x20       visual verification (documented in docs/handoffs):\n\
          \x20       reads, reads-power and reads-apps exercise the Phase 05\n\
-         \x20       read-only backends against fixture data.\n\
+         \x20       read-only backends against fixture data; writes,\n\
+         \x20       writes-conflict, writes-permission and writes-light\n\
+         \x20       exercise the Phase 06 safe write engine against a temp\n\
+         \x20       fixture copy and a fake D-Bus service (nothing outside\n\
+         \x20       the temp directory is touched).\n\
          \n\
          NOTES:\n\
          \x20   Licoman only ever writes its own preferences file\n\
          \x20   ($XDG_CONFIG_HOME/licoman/preferences.toml). Real settings are\n\
          \x20   read (GSettings, config files, D-Bus services) but never\n\
-         \x20   modified in this build.\n\
+         \x20   modified in this build: writes land only in the Phase 06\n\
+         \x20   fixture demos (a throwaway temp copy), never in a live run.\n\
          \n\
          Version {}",
         env!("CARGO_PKG_VERSION")

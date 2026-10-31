@@ -55,6 +55,10 @@ pub struct MainWindow {
     /// Set when module applicability changed; the control set must be
     /// rebuilt (rows that were unavailable can become editable).
     rebuild_needed: bool,
+    /// True while background rows are still unread; the transition to
+    /// all-read triggers one control rebuild (rows become interactive when
+    /// the read envelope flips to writable in fixture-write mode).
+    had_pending_reads: bool,
     /// Set when the header search submits; applied at the next render, where
     /// window access is available.
     pending_palette_query: Option<String>,
@@ -97,6 +101,14 @@ impl MainWindow {
         subscriptions.push(cx.subscribe(&app, {
             move |this, _app, event: &AppEvent, cx| match event {
                 AppEvent::SettingsChanged => {
+                    // The first read pass moves rows from Unknown to read
+                    // (and, in fixture-write mode, to writable): the control
+                    // set must be rebuilt then.
+                    let pending = this.app.read(cx).store.background_rows_pending();
+                    if this.had_pending_reads && !pending {
+                        this.rebuild_needed = true;
+                    }
+                    this.had_pending_reads = pending;
                     this.resync_needed = true;
                     cx.notify();
                 }
@@ -138,6 +150,7 @@ impl MainWindow {
             controls,
             resync_needed: false,
             rebuild_needed: false,
+            had_pending_reads: true,
             pending_palette_query: None,
             _subscriptions: subscriptions,
             _appearance_sub: Some(appearance_sub),
@@ -356,17 +369,69 @@ impl MainWindow {
                     .into_any()
                 }
             }
+            SettingPhase::PermissionRequired => {
+                let scope = row
+                    .descriptor
+                    .permission_scope
+                    .clone()
+                    .or_else(|| {
+                        row.model
+                            .error
+                            .as_ref()
+                            .map(|_| "an authorization boundary".to_string())
+                    })
+                    .unwrap_or_else(|| "an authorization boundary".to_string());
+                let authorize_id = SharedString::from(format!("authorize-{id}"));
+                let revert_setting_id = id.clone();
+                Some(
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            h_flex()
+                                .gap_1()
+                                .items_center()
+                                .text_color(theme.muted_foreground)
+                                .child(Icon::new(gpui_kit::assets::IconName::Lock).small())
+                                .child(format!("Permission required — {scope}")),
+                        )
+                        .child(
+                            h_flex().gap_2().child(
+                                Button::new(authorize_id)
+                                    .label("Authorize…")
+                                    .outline()
+                                    .xsmall()
+                                    .on_click(cx.listener(
+                                        |_this, _: &ClickEvent, window, cx| {
+                                            window.open_alert_dialog(cx, |alert, _window, _cx| {
+                                                alert
+                                                    .title(
+                                                        "Authorization is not available in this build",
+                                                    )
+                                                    .description(
+                                                        "Licoman runs unprivileged. Privileged writes are denied by default by the permission broker; no password is ever requested and no system configuration was modified.",
+                                                    )
+                                            });
+                                        },
+                                    )),
+                            ),
+                        )
+                        .child(self.revert_edit_button(&revert_setting_id, cx))
+                            .into_any_element(),
+                )
+            }
             SettingPhase::Idle => {
                 // Static provider notes (why a row is read-only) and known
                 // restart requirements are truthful status lines.
+                let reset_line = self.reset_action_line(row, cx);
                 if let Some(note) = &row.descriptor.note {
                     return Some(
                         v_flex()
                             .gap_1()
                             .child(div().text_color(theme.muted_foreground).child(note.clone()))
-                            .children(self.source_details_line(row, &theme, cx)),
-                    )
-                    .into_any();
+                            .children(reset_line)
+                            .children(self.source_details_line(row, &theme, cx))
+                            .into_any_element(),
+                    );
                 }
                 if let Some(target) = row
                     .descriptor
@@ -385,11 +450,18 @@ impl MainWindow {
                                     .child(Icon::new(IconName::TriangleAlert).small())
                                     .child(format!("Applies after restarting {target}")),
                             )
-                            .children(self.source_details_line(row, &theme, cx)),
-                    )
-                    .into_any();
+                            .children(reset_line)
+                            .children(self.source_details_line(row, &theme, cx))
+                            .into_any_element(),
+                    );
                 }
-                self.source_details_line(row, &theme, cx)
+                Some(
+                    v_flex()
+                        .gap_1()
+                        .children(reset_line)
+                        .children(self.source_details_line(row, &theme, cx))
+                        .into_any_element(),
+                )
             }
             SettingPhase::Dirty => Some(
                 h_flex()
@@ -417,25 +489,62 @@ impl MainWindow {
                     .child("Applying…"),
             )
             .into_any(),
-            SettingPhase::Applied => Some(
-                h_flex()
-                    .gap_1()
-                    .items_center()
-                    .text_color(theme.success)
-                    .child(Icon::new(IconName::CircleCheck).small())
-                    .child(if row.model.restart_required {
-                        format!(
-                            "Saved — applies after restarting {}",
-                            row.descriptor
-                                .restart_target
-                                .clone()
-                                .unwrap_or_else(|| "the affected program".to_string())
+            SettingPhase::Applied => {
+                let undo_id = SharedString::from(format!("undo-{id}"));
+                let undo_setting_id = id.clone();
+                let undo_available = self.app.read(cx).store.undo_available(&id);
+                let persistence_note = match row.model.persistence {
+                    Some(licoman_core::Persistence::RuntimeOnly) => {
+                        " — runtime only, a restart of the service reverts it"
+                    }
+                    _ => "",
+                };
+                let saved_text = if row.model.restart_required {
+                    format!(
+                        "Saved — applies after restarting {}{persistence_note}",
+                        row.descriptor
+                            .restart_target
+                            .clone()
+                            .unwrap_or_else(|| "the affected program".to_string())
+                    )
+                } else {
+                    format!("Saved{persistence_note}")
+                };
+                Some(
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            h_flex()
+                                .gap_1()
+                                .items_center()
+                                .text_color(theme.success)
+                                .child(Icon::new(IconName::CircleCheck).small())
+                                .child(saved_text),
                         )
-                    } else {
-                        "Saved".to_string()
-                    }),
-            )
-            .into_any(),
+                        .when(undo_available, |line| {
+                            line.child(
+                                h_flex().gap_2().child(
+                                    Button::new(undo_id)
+                                        .label("Undo")
+                                        .ghost()
+                                        .xsmall()
+                                        .on_click(cx.listener(
+                                            move |this, _: &ClickEvent, _window, cx| {
+                                                let setting_id = undo_setting_id.clone();
+                                                this.app.update(cx, |state, cx| {
+                                                    state.dispatch(
+                                                        Command::Undo { id: setting_id },
+                                                        cx,
+                                                    );
+                                                });
+                                            },
+                                        )),
+                                ),
+                            )
+                        }),
+                )
+                .into_any()
+            }
             SettingPhase::Failed => {
                 let error = row.model.error.as_ref()?;
                 let retry_id = SharedString::from(format!("retry-{id}"));
@@ -581,6 +690,111 @@ impl MainWindow {
                 .into_any()
             }
         }
+    }
+
+    /// The "Reset to default…" action line for editable Idle rows whose
+    /// backend offers a reset. The disclosure dialog explains what the reset
+    /// concretely does before anything is dispatched
+    /// (06_SAFE_WRITE_ENGINE.md §5).
+    fn reset_action_line(&mut self, row: &Row, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let descriptor_control_readonly = row.descriptor.control == licoman_core::Control::ReadOnly;
+        if descriptor_control_readonly {
+            return None;
+        }
+        let support = self.app.read(cx).store.reset_support(&row.descriptor.id)?;
+        if matches!(
+            support.disclosure,
+            licoman_core::ResetDisclosure::NotPossible { .. }
+        ) {
+            return None;
+        }
+        let reset_id = SharedString::from(format!("reset-{}", row.descriptor.id));
+        let setting_id = row.descriptor.id.clone();
+        let app = self.app.clone();
+        let button = Button::new(reset_id)
+            .label("Reset to default…")
+            .ghost()
+            .xsmall()
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                let setting_id = setting_id.clone();
+                let support = this
+                    .app
+                    .read(cx)
+                    .store
+                    .reset_support(&setting_id)
+                    .expect("checked when rendering the button");
+                let explanation = support.disclosure.explanation();
+                let confirm_id = SharedString::from(format!("reset-confirm-{setting_id}"));
+                let app = app.clone();
+                let confirm_id_inner = confirm_id.clone();
+                window.open_dialog(cx, move |dialog, _window, cx| {
+                    let theme = cx.theme().clone();
+                    let setting_id = setting_id.clone();
+                    let app = app.clone();
+                    dialog.title("Reset to default").keyboard(true).child(
+                        v_flex()
+                            .gap_3()
+                            .child(div().child(explanation.clone()))
+                            .child(
+                                div()
+                                    .text_size(px(metrics::TEXT_META))
+                                    .text_color(theme.muted_foreground)
+                                    .child(
+                                        "This writes through the safe write \
+                                                     engine with a conflict check and a \
+                                                     backup of the previous value.",
+                                    ),
+                            )
+                            .child(
+                                h_flex()
+                                    .justify_end()
+                                    .gap_2()
+                                    .child(
+                                        Button::new("reset-cancel")
+                                            .label("Cancel")
+                                            .ghost()
+                                            .on_click(|_, window, cx| {
+                                                window.close_dialog(cx);
+                                            }),
+                                    )
+                                    .child(
+                                        Button::new(confirm_id_inner.clone())
+                                            .label("Reset")
+                                            .primary()
+                                            .on_click(move |_, window, cx| {
+                                                window.close_dialog(cx);
+                                                let setting_id = setting_id.clone();
+                                                app.update(cx, |state, cx| {
+                                                    state.dispatch(
+                                                        Command::ResetToDefault { id: setting_id },
+                                                        cx,
+                                                    );
+                                                });
+                                            }),
+                                    ),
+                            ),
+                    )
+                });
+            }));
+        Some(h_flex().gap_2().child(button).into_any_element())
+    }
+
+    /// The small Revert button for rows holding an unapplied edit (used by
+    /// the permission-required state, where the edit is retained but
+    /// refused).
+    fn revert_edit_button(&mut self, setting_id: &str, cx: &mut Context<Self>) -> Button {
+        let revert_id = SharedString::from(format!("revert-edit-{setting_id}"));
+        let setting_id = setting_id.to_string();
+        Button::new(revert_id)
+            .label("Discard edit")
+            .ghost()
+            .xsmall()
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                let setting_id = setting_id.clone();
+                this.app.update(cx, |state, cx| {
+                    state.dispatch(Command::Revert { id: setting_id }, cx);
+                });
+            }))
     }
 
     /// The Idle status line for rows with read provenance: the value origin,
@@ -824,13 +1038,37 @@ impl MainWindow {
 
     fn render_apply_bar(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let theme = cx.theme().clone();
-        let (pending, applying) = {
+        let (pending, applying, confirming) = {
             let store = &self.app.read(cx).store;
-            (store.pending_count(), store.applying())
+            (
+                store.pending_count(),
+                store.applying(),
+                store.confirmation_pending().len(),
+            )
         };
         if pending == 0 && !applying {
             return None;
         }
+        let needs_confirmation = confirming > 0 && !applying;
+        let bar_text = if applying {
+            "Applying changes…".to_string()
+        } else if needs_confirmation && confirming == pending {
+            format!(
+                "{confirming} change{} need{} your confirmation",
+                if confirming == 1 { "" } else { "s" },
+                if confirming == 1 { "s" } else { "" }
+            )
+        } else if needs_confirmation {
+            format!(
+                "{pending} change{} pending · {confirming} need confirmation",
+                if pending == 1 { "" } else { "s" }
+            )
+        } else {
+            format!(
+                "{pending} change{} pending",
+                if pending == 1 { "" } else { "s" }
+            )
+        };
         Some(
             h_flex()
                 .justify_between()
@@ -853,14 +1091,7 @@ impl MainWindow {
                             div()
                                 .text_size(px(metrics::TEXT_LABEL))
                                 .text_color(theme.foreground)
-                                .child(if applying {
-                                    "Applying changes…".to_string()
-                                } else {
-                                    format!(
-                                        "{pending} change{} pending",
-                                        if pending == 1 { "" } else { "s" }
-                                    )
-                                }),
+                                .child(bar_text),
                         ),
                 )
                 .child(
@@ -877,12 +1108,22 @@ impl MainWindow {
                                     });
                                 })),
                         )
+                        .when(needs_confirmation, |bar| {
+                            bar.child(
+                                Button::new("review-changes")
+                                    .label("Review…")
+                                    .primary()
+                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                        this.open_confirmation_dialog(window, cx);
+                                    })),
+                            )
+                        })
                         .child(
                             Button::new("apply-changes")
                                 .label(if applying { "Applying…" } else { "Apply" })
                                 .primary()
                                 .loading(applying)
-                                .disabled(applying)
+                                .disabled(applying || needs_confirmation)
                                 .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
                                     this.app.update(cx, |state, cx| {
                                         state.dispatch(Command::ApplyAll, cx);
@@ -892,6 +1133,117 @@ impl MainWindow {
                 ),
         )
         .into_any()
+    }
+
+    /// The confirmation dialog for staged changes whose core-derived policy
+    /// is Confirmation (06_SAFE_WRITE_ENGINE.md §1: the policy is enforced
+    /// by the core; this dialog is where the explicit confirmation happens).
+    /// It shows effect, target provenance and restart behavior per row; the
+    /// Apply button dispatches one `ConfirmApply` per listed row.
+    fn open_confirmation_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let app = self.app.clone();
+        let rows: Vec<(String, String, Option<String>)> = {
+            let state = self.app.read(cx);
+            state
+                .store
+                .confirmation_pending()
+                .iter()
+                .filter_map(|id| {
+                    let descriptor = state.store.descriptor(id)?;
+                    let target = descriptor
+                        .restart_target
+                        .clone()
+                        .or_else(|| state.store.reset_support(id).map(|_| String::new()));
+                    let target_note = state
+                        .store
+                        .model(id)
+                        .and_then(|m| m.read_meta.as_ref())
+                        .map(|meta| meta.details.target.clone());
+                    Some((
+                        descriptor.label.clone(),
+                        target_note.unwrap_or_default(),
+                        target,
+                    ))
+                })
+                .collect()
+        };
+        if rows.is_empty() {
+            return;
+        }
+        let count = rows.len();
+        window.open_dialog(cx, move |dialog, _window, cx| {
+            let theme = cx.theme().clone();
+            let app = app.clone();
+            let rows = rows.clone();
+            dialog.title("Confirm changes").keyboard(true).child(
+                v_flex()
+                    .gap_3()
+                    .child(
+                        div()
+                            .text_size(px(metrics::TEXT_META))
+                            .text_color(theme.muted_foreground)
+                            .child(
+                                "These changes are high-impact. They run through the \
+                                     safe write engine with a conflict check, a backup of \
+                                     the previous value and a verified readback.",
+                            ),
+                    )
+                    .children(rows.iter().map(|(label, target, restart)| {
+                        v_flex()
+                            .gap_0p5()
+                            .child(
+                                div()
+                                    .text_size(px(metrics::TEXT_LABEL))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(label.clone()),
+                            )
+                            .children((!target.is_empty()).then(|| {
+                                div()
+                                    .text_size(px(metrics::TEXT_META))
+                                    .text_color(theme.muted_foreground)
+                                    .child(target.clone())
+                            }))
+                            .children(restart.clone().map(|restart| {
+                                div()
+                                    .text_size(px(metrics::TEXT_META))
+                                    .text_color(theme.warning)
+                                    .child(format!("Applies after restarting {restart}"))
+                            }))
+                    }))
+                    .child(
+                        h_flex()
+                            .justify_end()
+                            .gap_2()
+                            .child(
+                                Button::new("confirm-cancel")
+                                    .label("Cancel")
+                                    .ghost()
+                                    .on_click(|_, window, cx| {
+                                        window.close_dialog(cx);
+                                    }),
+                            )
+                            .child(
+                                Button::new("confirm-apply")
+                                    .label(format!("Apply {count}"))
+                                    .primary()
+                                    .on_click(move |_, window, cx| {
+                                        window.close_dialog(cx);
+                                        let app = app.clone();
+                                        let ids = {
+                                            let state = app.read(cx);
+                                            state.store.confirmation_pending().to_vec()
+                                        };
+                                        app.update(cx, |state, cx| {
+                                            for id in ids {
+                                                state.dispatch(Command::ConfirmApply { id }, cx);
+                                            }
+                                        });
+                                    }),
+                            ),
+                    ),
+            )
+        });
+        cx.notify();
     }
 
     fn render_palette(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {

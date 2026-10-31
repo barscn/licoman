@@ -95,6 +95,33 @@ impl Registry {
         self.providers[*provider_index].write(id, value)
     }
 
+    /// Route a typed change intent through the owning provider's safe write
+    /// path (06_SAFE_WRITE_ENGINE.md §1).
+    pub fn write_intent(
+        &self,
+        intent: &crate::write::ChangeIntent,
+    ) -> Result<crate::provider::WriteOutcome, LicomanError> {
+        let (provider_index, _) = self
+            .index
+            .get(&intent.setting_id)
+            .ok_or_else(|| unknown_setting(&intent.setting_id))?;
+        self.providers[*provider_index].write_intent(intent)
+    }
+
+    /// The owning module's declared risk for the policy derivation.
+    pub fn write_risk(&self, id: &str) -> crate::provider::RiskLevel {
+        match self.index.get(id) {
+            Some((provider_index, _)) => self.providers[*provider_index].write_risk(id),
+            None => crate::provider::RiskLevel::Low,
+        }
+    }
+
+    /// Reset support for one setting (None = not offered).
+    pub fn reset_support(&self, id: &str) -> Option<crate::write::ResetSupport> {
+        let (provider_index, _) = self.index.get(id)?;
+        self.providers[*provider_index].reset_support(id)
+    }
+
     /// Descriptors filtered to one scope, in registration order.
     pub fn descriptors_in_scope(&self, scope: crate::descriptor::Scope) -> Vec<&SettingDescriptor> {
         self.ordered.iter().filter(|d| d.scope == scope).collect()

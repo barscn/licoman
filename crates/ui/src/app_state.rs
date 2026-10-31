@@ -145,6 +145,8 @@ pub struct AppState {
     settings_watcher: Option<crate::settings_watch::SettingsWatcher>,
     /// Bumped per background read pass; stale results must not publish.
     reads_generation: u64,
+    /// Bumped per write pass; stale publishes must not land.
+    apply_generation: u64,
     /// True when the provider's router serves fixture paths (the `reads`
     /// demo): background reads then run against fixtures even though
     /// discovery is demo-locked.
@@ -162,6 +164,7 @@ impl AppState {
             environment_watcher: None,
             settings_watcher: None,
             reads_generation: 0,
+            apply_generation: 0,
             reads_fixture_backed: false,
         }
     }
@@ -437,7 +440,6 @@ impl AppState {
     /// Forward a typed command to the core store and emit the matching
     /// events. This is the only path from UI intent to domain mutation.
     pub fn dispatch(&mut self, command: Command, cx: &mut Context<Self>) -> DispatchReport {
-        let is_apply_all = matches!(command, Command::ApplyAll);
         let report = self.store.dispatch(command);
         if report.settings_changed {
             cx.emit(AppEvent::SettingsChanged);
@@ -446,28 +448,79 @@ impl AppState {
             cx.emit(AppEvent::PreferencesChanged);
         }
 
-        // The staged apply keeps a visible interval so "Applying…" is
-        // truthful, then completes on the main thread. The only timers in the
-        // app run while an apply or its confirmation is in flight — there is
-        // no background daemon and no idle polling.
-        if is_apply_all && self.store.applying() {
-            cx.spawn(async move |this, cx| {
-                cx.background_executor()
-                    .timer(Duration::from_millis(700))
-                    .await;
-                let _ = this.update(cx, |state, cx| state.complete_apply(cx));
-            })
-            .detach();
+        // Any command can leave rows in the Applying phase (staged Apply,
+        // immediate edit, retry, undo, reset, confirm). The visible
+        // "Applying…" interval runs first, then the write pass executes the
+        // rows' intents on the background executor — never on the UI thread.
+        if self.store.applying() {
+            self.kick_apply(cx);
         }
         report
     }
 
-    /// Finish a staged apply and schedule the transient "Saved" confirmation.
-    pub fn complete_apply(&mut self, cx: &mut Context<Self>) {
-        let report = self.store.apply_complete();
-        if report.settings_changed {
-            cx.emit(AppEvent::SettingsChanged);
+    /// Start the visible apply interval; the write pass follows it. The
+    /// generation guard makes repeated clicks and overlapping commands safe:
+    /// a newer pass silently supersedes an older one.
+    fn kick_apply(&mut self, cx: &mut Context<Self>) {
+        self.apply_generation += 1;
+        let generation = self.apply_generation;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(500))
+                .await;
+            let _ = this.update(cx, |state, cx| state.run_apply_pass(generation, cx));
+        })
+        .detach();
+    }
+
+    /// Drain the store's staged intents and execute them on the background
+    /// executor, publishing each result as it lands. Writes through the safe
+    /// write engine are conflict-checked, backed up and verified by the
+    /// engine itself; the store's [`Store::publish_apply`] maps the outcomes
+    /// (no "Applied" without a verification that matched).
+    fn run_apply_pass(&mut self, generation: u64, cx: &mut Context<Self>) {
+        if self.apply_generation != generation {
+            return; // a newer pass owns the rows now
         }
+        let intents = self.store.take_apply_intents();
+        if intents.is_empty() {
+            return;
+        }
+        licoman_core::log::info(
+            "ui::writes",
+            "background write pass scheduled",
+            &[("changes", intents.len().to_string())],
+        );
+        let provider = self.module_provider.clone();
+        cx.spawn(async move |this, cx| {
+            for (id, intent) in intents {
+                let provider = provider.clone();
+                let intent_for_task = intent.clone();
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        licoman_core::provider::Provider::write_intent(&*provider, &intent_for_task)
+                    })
+                    .await;
+                let published = this.update(cx, |state, cx| {
+                    if state.apply_generation != generation {
+                        return; // a newer pass owns the rows now
+                    }
+                    if state.store.publish_apply(&id, &intent, result) {
+                        cx.emit(AppEvent::SettingsChanged);
+                    }
+                    state.schedule_acknowledgement(cx);
+                });
+                if published.is_err() {
+                    return; // the app is shutting down
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Schedule the transient "Saved" confirmation once applied rows exist.
+    fn schedule_acknowledgement(&mut self, cx: &mut Context<Self>) {
         if self
             .store
             .models()

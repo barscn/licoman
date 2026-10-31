@@ -1,6 +1,6 @@
 # Licoman Architecture
 
-**Status:** as of Phase 05 (2026-10-31). Decision records live in
+**Status:** as of Phase 06 (2026-10-31). Decision records live in
 [decisions.md](decisions.md); design decisions from Phase 01 live in
 [docs/design/decisions.md](../design/decisions.md) (D1–D13).
 
@@ -39,6 +39,14 @@ crates/licoman-core   domain: typed values, descriptors, lifecycle store,
   Alacritty search paths and import merge, and D-Bus service properties via
   zbus — all bounded, off the UI thread, and read-only. See
   [backends.md](backends.md).
+- Since Phase 06 the **safe write engine** (`crates/core/src/write/`) turns
+  typed change intents into conflict-checked, backed-up, verified writes —
+  fixture-only in this build: an engine exists only when the provider was
+  explicitly constructed with one over injected fixture roots (the demos);
+  live providers refuse every non-mock write. Policies are core-derived,
+  the privilege broker denies by default, and no "Applied" is shown without
+  a verification that matched. See [write-engine.md](write-engine.md) and
+  [../security/threat-model.md](../security/threat-model.md).
 - `licoman-ui` renders the **Quiet Control** design system (tokens in
   `crates/ui/src/theme.rs`) and adapts core state to widgets.
 - `apps/licoman` is deliberately thin: CLI parsing, environment checks,

@@ -35,6 +35,10 @@ pub enum SettingPhase {
     Failed,
     /// The source changed outside Licoman; reconcile before editing.
     ExternalConflict,
+    /// The change requires an authorization the deny-by-default privilege
+    /// broker refused (06_SAFE_WRITE_ENGINE.md §4). The edit is retained but
+    /// never applied; the UI offers the honest explanation.
+    PermissionRequired,
 }
 
 impl SettingPhase {
@@ -55,6 +59,7 @@ impl SettingPhase {
             self,
             SettingPhase::Applying
                 | SettingPhase::ExternalConflict
+                | SettingPhase::PermissionRequired
                 | SettingPhase::Unavailable
                 | SettingPhase::Unknown
         )

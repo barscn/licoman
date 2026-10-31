@@ -35,9 +35,9 @@ use crate::value::SettingValue;
 /// Current and legacy well-known names, with their object paths and
 /// interface names (power-profiles-daemon exposes both; the interface is
 /// `org.freedesktop.UPower.PowerProfiles` on either endpoint).
-type Endpoint = (&'static str, &'static str, &'static str);
+pub(crate) type Endpoint = (&'static str, &'static str, &'static str);
 
-const ENDPOINTS: [Endpoint; 2] = [
+pub(crate) const ENDPOINTS: [Endpoint; 2] = [
     (
         "org.freedesktop.UPower.PowerProfiles",
         "/org/freedesktop/UPower/PowerProfiles",
@@ -112,6 +112,17 @@ pub enum ClientError {
     Denied(String),
     /// Anything else, with a technical detail.
     Other(String),
+}
+
+impl std::fmt::Display for ClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClientError::NoBus(detail) => write!(f, "bus unreachable: {detail}"),
+            ClientError::Timeout => write!(f, "timed out"),
+            ClientError::Denied(detail) => write!(f, "denied: {detail}"),
+            ClientError::Other(detail) => write!(f, "{detail}"),
+        }
+    }
 }
 
 impl ClientError {
