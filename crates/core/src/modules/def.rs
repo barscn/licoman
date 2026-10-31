@@ -71,6 +71,9 @@ pub enum ValueKind {
     Float,
     String,
     Path,
+    /// Optional list of strings; empty = not set (e.g. a service-provided
+    /// profile list). Phase 05: readable through the D-Bus backend.
+    List,
 }
 
 impl ValueKind {
@@ -83,6 +86,7 @@ impl ValueKind {
             ValueKind::Float => crate::value::SettingType::Float,
             ValueKind::String => crate::value::SettingType::Text,
             ValueKind::Path => crate::value::SettingType::Path,
+            ValueKind::List => crate::value::SettingType::List,
         }
     }
 }
@@ -205,12 +209,30 @@ pub enum BackendBinding {
     },
     /// A configuration file under `$XDG_CONFIG_HOME` (relative path, no
     /// `..`, no absolute paths — validation rejects anything else).
+    /// `resolution` selects how the file is located and merged
+    /// (Phase 05: TOML first; Alacritty's documented search paths and
+    /// `general.import` merge are the first implemented strategy).
     File {
         path: String,
         format: FileFormat,
         #[serde(default)]
         key: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        resolution: Option<FileResolution>,
     },
+}
+
+/// How a `file` binding locates and merges its configuration. Closed
+/// allowlist: unknown strategies are a validation error, never a guess.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, JsonSchema, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileResolution {
+    /// One file relative to `$XDG_CONFIG_HOME`, read as-is.
+    XdgFile,
+    /// Alacritty: documented search-path list plus the `general.import`
+    /// merge ("imports are loaded in order, skipping all missing files,
+    /// with the importing file being loaded last").
+    Alacritty,
 }
 
 impl BackendBinding {

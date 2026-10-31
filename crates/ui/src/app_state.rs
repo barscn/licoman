@@ -140,6 +140,15 @@ pub struct AppState {
     /// Held for the process lifetime; the watcher thread is event-driven and
     /// does no idle polling.
     environment_watcher: Option<crate::environment_watch::EnvironmentWatcher>,
+    /// Held for the process lifetime: debounced watchers over the read
+    /// backends' config paths (dconf db, Alacritty config dir).
+    settings_watcher: Option<crate::settings_watch::SettingsWatcher>,
+    /// Bumped per background read pass; stale results must not publish.
+    reads_generation: u64,
+    /// True when the provider's router serves fixture paths (the `reads`
+    /// demo): background reads then run against fixtures even though
+    /// discovery is demo-locked.
+    reads_fixture_backed: bool,
 }
 
 impl EventEmitter<AppEvent> for AppState {}
@@ -151,7 +160,15 @@ impl AppState {
             environment: EnvironmentState::default(),
             module_provider,
             environment_watcher: None,
+            settings_watcher: None,
+            reads_generation: 0,
+            reads_fixture_backed: false,
         }
+    }
+
+    /// Mark the provider's backend router as fixture-backed (demo mode).
+    pub fn set_reads_fixture_backed(&mut self) {
+        self.reads_fixture_backed = true;
     }
 
     /// The module-registry handle (module metadata, provenance, app
@@ -198,6 +215,95 @@ impl AppState {
             );
             self.store.reload_all();
             cx.emit(AppEvent::ModulesChanged);
+        }
+        // Real-backend rows are (re)read off the UI thread after every
+        // ingest — first reads and refreshes alike.
+        self.schedule_background_reads(cx);
+        self.ensure_settings_watcher(cx);
+    }
+
+    /// Schedule one background read pass over every Background-latency
+    /// setting (files, GSettings, D-Bus). Reads run on the background
+    /// executor; results publish one row at a time; a newer pass (generation
+    /// bump) silently supersedes stale results. A hanging backend cannot
+    /// stall this: backends bound their own I/O (§6.4).
+    pub fn schedule_background_reads(&mut self, cx: &mut Context<Self>) {
+        // Demo fixtures are only re-read when the router itself is
+        // fixture-backed; live backends must never run under a demo.
+        if self.environment.demo_locked && !self.reads_fixture_backed {
+            return;
+        }
+        self.reads_generation += 1;
+        let generation = self.reads_generation;
+        let ids = self.store.background_read_ids();
+        if ids.is_empty() {
+            return;
+        }
+        licoman_core::log::info(
+            "ui::reads",
+            "background read pass scheduled",
+            &[("settings", ids.len().to_string())],
+        );
+        let provider = self.module_provider.clone();
+        cx.spawn(async move |this, cx| {
+            for id in ids {
+                let provider = provider.clone();
+                let id_for_read = id.clone();
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        licoman_core::provider::Provider::read_detailed(&*provider, &id_for_read)
+                    })
+                    .await;
+                let published = this.update(cx, |state, cx| {
+                    if state.reads_generation != generation {
+                        return; // a newer pass owns the rows now
+                    }
+                    if state.store.publish_read(&id, result) {
+                        cx.emit(AppEvent::SettingsChanged);
+                    }
+                });
+                if published.is_err() {
+                    return; // the app is shutting down
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// The settings watcher fired (debounced): re-read the backends' values.
+    /// Demo fixtures are never replaced by live data.
+    pub fn on_settings_changed_on_disk(&mut self, cx: &mut Context<Self>) {
+        if self.environment.demo_locked {
+            return;
+        }
+        licoman_core::log::info(
+            "ui::reads",
+            "watched configuration path changed; refreshing setting values",
+            &[],
+        );
+        self.schedule_background_reads(cx);
+    }
+
+    /// Attach (or re-attach) the debounced watcher over the read backends'
+    /// config paths. Called after discovery ingests; paths only change then.
+    pub fn ensure_settings_watcher(&mut self, cx: &mut Context<Self>) {
+        if self.environment.demo_locked {
+            return;
+        }
+        let paths = self.module_provider.router().watch_paths();
+        if paths.is_empty() {
+            return;
+        }
+        if self
+            .settings_watcher
+            .as_ref()
+            .is_some_and(|w| w.paths() == paths)
+        {
+            return; // unchanged; keep the existing watcher
+        }
+        if let Some(watcher) = crate::settings_watch::start(cx.weak_entity(), paths, cx) {
+            self.settings_watcher = Some(watcher);
         }
     }
 

@@ -4,15 +4,17 @@
 
 Built with **Rust + GPUI + GPUI Kit**. No Electron, no browser UI, no embedded web view.
 
-> **Status: Phase 04 (declarative module schema and registry) implemented.**
-> The settings catalog is declarative — built-in module manifests validated
-> and evaluated against the detected environment — and the app runs on
-> a UI-independent core (`crates/core`, no GPUI) behind a GPUI adapter
-> (`crates/ui`), with a deterministic mock provider. No real configuration is
-> read or written yet — Licoman only ever writes its own preferences file.
-> See [docs/handoffs/PHASE_02_REPORT.md](docs/handoffs/PHASE_02_REPORT.md),
-> [docs/handoffs/PHASE_01_REPORT.md](docs/handoffs/PHASE_01_REPORT.md) and
-> [docs/architecture/README.md](docs/architecture/README.md).
+> **Status: Phase 05 (read-only native configuration backends) implemented.**
+> The catalog is declarative (Phase 04) and the real backends now **read**:
+> GSettings values come from the platform's own schema/dconf databases,
+> Alacritty-style TOML configs are read with the documented search paths and
+> `general.import` merge, and power profiles read over D-Bus (zbus) — every
+> value carries typed origin, freshness and source details, and nothing is
+> ever written (writes remain Phase 06). Licoman only ever writes its own
+> preferences file. See
+> [docs/handoffs/PHASE_05_REPORT.md](docs/handoffs/PHASE_05_REPORT.md),
+> [docs/architecture/backends.md](docs/architecture/backends.md) and
+> [docs/architecture/decisions.md](docs/architecture/decisions.md) (D38–D42).
 
 ## Principles (non-negotiable)
 

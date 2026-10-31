@@ -157,6 +157,18 @@ fn is_identifier(text: &str) -> bool {
         && !text.contains("..")
 }
 
+/// D-Bus member (property/method) names are PascalCase by convention and
+/// the D-Bus spec allows `[A-Za-z_][A-Za-z0-9_]*` — distinct from the
+/// lowercase Licoman identifier grammar above.
+fn is_dbus_member(text: &str) -> bool {
+    !text.is_empty() && text.len() <= 200 && {
+        let mut chars = text.chars();
+        let first = chars.next().expect("non-empty");
+        (first.is_ascii_alphabetic() || first == '_')
+            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    }
+}
+
 /// Dotted name with case-insensitive segments (D-Bus well-known names and
 /// interfaces, GSettings schema ids — `org.freedesktop.portal.Desktop`).
 fn is_dotted_name(text: &str) -> bool {
@@ -543,6 +555,9 @@ fn validate_typed_setting(setting: &SettingDefinition, kind: ValueKind) -> Vec<M
         }
         ValueKind::String => setting.control == CK::Text,
         ValueKind::Path => setting.control == CK::PathInput,
+        // Lists render through the read-only path (service-provided
+        // collections; no editing in this phase).
+        ValueKind::List => matches!(setting.control, CK::ReadOnly),
     } || setting.control == CK::ReadOnly;
     if !control_ok {
         issues.push(err(
@@ -825,7 +840,7 @@ fn validate_backend(def: &ModuleDefinition, setting: &SettingDefinition) -> Vec<
                 ));
             }
             if let Some(property) = property
-                && !is_identifier(property)
+                && !(is_dbus_member(property) || is_identifier(property))
             {
                 issues.push(err(
                     "backend",
@@ -833,7 +848,9 @@ fn validate_backend(def: &ModuleDefinition, setting: &SettingDefinition) -> Vec<
                 ));
             }
         }
-        BackendBinding::File { path, format, key } => {
+        BackendBinding::File {
+            path, format, key, ..
+        } => {
             if !is_safe_relative_path(path) {
                 issues.push(err(
                     "backend",

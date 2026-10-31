@@ -355,6 +355,9 @@ pub struct EnvironmentSnapshot {
     /// Well-known names visible on the session bus (Phase 04: service
     /// bindings check against these).
     pub bus_names: std::collections::BTreeSet<String>,
+    /// Well-known names visible on the system bus (Phase 05: services like
+    /// power-profiles-daemon live here, not on the session bus).
+    pub bus_names_system: std::collections::BTreeSet<String>,
 }
 
 impl EnvironmentSnapshot {
@@ -394,6 +397,7 @@ pub struct DiscoveryRun {
     available_backends: Vec<BackendCapability>,
     gsettings_schemas: BTreeMap<String, std::collections::BTreeSet<String>>,
     bus_names: std::collections::BTreeSet<String>,
+    bus_names_system: std::collections::BTreeSet<String>,
     problems: Vec<DetectionProblem>,
     timings: ScanTimings,
     next_stage: Option<ScanStage>,
@@ -426,6 +430,7 @@ impl DiscoveryRun {
             problems: self.problems.clone(),
             gsettings_schemas: self.gsettings_schemas.clone(),
             bus_names: self.bus_names.clone(),
+            bus_names_system: self.bus_names_system.clone(),
         }
     }
 
@@ -488,6 +493,7 @@ impl DiscoveryRun {
                 self.available_backends = available_backends;
                 self.gsettings_schemas = facts.gsettings_schemas;
                 self.bus_names = facts.bus_names;
+                self.bus_names_system = facts.bus_names_system;
                 self.timings.backends_micros = started.elapsed().as_micros() as u64;
                 self.problems.extend(problems);
                 self.next_stage = None;

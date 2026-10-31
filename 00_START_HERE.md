@@ -4,16 +4,17 @@
 for Linux configuration, built with **Rust + GPUI + GPUI Kit**. No Electron,
 no browser UI, no embedded web view.
 
-> **Status: Phase 04 (declarative module schema and registry) implemented.**
-> The shipped settings catalog is now declarative: built-in module manifests
-> (`modules/builtin/*.toml`, embedded at build time) are validated, indexed
-> and evaluated for applicability against the detected environment. Both
-> windows render registry-driven rows through one control factory; real
-> backends are declared and recorded but never read or written yet —
-> Licoman only ever writes its own preferences file. See
-> [docs/handoffs/PHASE_04_REPORT.md](docs/handoffs/PHASE_04_REPORT.md),
-> [docs/module-schema.md](docs/module-schema.md) and
-> [docs/architecture/decisions.md](docs/architecture/decisions.md) (D31–D37).
+> **Status: Phase 05 (read-only native configuration backends) implemented.**
+> The catalog is declarative (Phase 04) and the real backends now **read**:
+> GSettings values come from the platform's own schema/dconf databases,
+> Alacritty-style TOML configs are read with the documented search paths and
+> `general.import` merge, and power profiles read over D-Bus (zbus) — every
+> value carries typed origin, freshness and source details, and nothing is
+> ever written (writes remain Phase 06). Licoman only ever writes its own
+> preferences file. See
+> [docs/handoffs/PHASE_05_REPORT.md](docs/handoffs/PHASE_05_REPORT.md),
+> [docs/architecture/backends.md](docs/architecture/backends.md) and
+> [docs/architecture/decisions.md](docs/architecture/decisions.md) (D38–D42).
 
 ## Developer commands
 
@@ -59,6 +60,9 @@ diagnostic; domain tests run fine headless.
 | `arch-hyprland`, `fedora-gnome`, `ubuntu-x11`, `debian-xfce`, `multi-xdg`, `unknown` | Discovery demo snapshots built through the real parsers (environments this machine cannot run) |
 | `all-apps` | Applications window opened directly in the "All installed" view |
 | `app-detail` | Applications window with an installed module-backed app selected (registry-driven tabs and rows) |
+| `reads` | Phase 05 read backends on fixture data: real GSettings values with origin lines, plus the Source details dialog |
+| `reads-power` | The power-profiles service absent: truthful per-row unavailability |
+| `reads-apps` | Applications window: Alacritty rows read from the fixture TOML config |
 
 ```sh
 LICOMAN_DEMO=apps cargo run -p licoman
@@ -86,7 +90,7 @@ on stderr; ids and counts only — never setting values).
 apps/licoman/        # executable: CLI, logging init, GPUI bootstrap
 crates/core/         # licoman-core: UI-independent domain (no GPUI)
 crates/ui/           # licoman-ui: Quiet Control themes + windows + views
-docs/architecture/   # boundaries, decision records (D14+), discovery.md
+docs/architecture/   # boundaries, decision records (D14+), discovery.md, backends.md
 docs/design/         # Quiet Control design system documents (Phase 01)
 docs/handoffs/       # per-phase reports (PHASE_01_REPORT.md, PHASE_02_REPORT.md …)
 docs/screenshots/    # captured on a real Hyprland/Wayland session
@@ -106,6 +110,8 @@ tests/tools/         # dev verification harnesses (WIP Wayland key injector)
    system (tokens, layout, states, accessibility).
 4. [docs/architecture/discovery.md](docs/architecture/discovery.md) — how
    read-only environment discovery works (sources, precedence, limits).
+5. [docs/architecture/backends.md](docs/architecture/backends.md) — the
+   Phase 05 read-only backends (GSettings/dconf, TOML+imports, D-Bus).
 5. [docs/handoffs/PHASE_03_REPORT.md](docs/handoffs/PHASE_03_REPORT.md) —
    what this phase did and how it was verified.
 5. The authoritative execution plan is the author's document pack

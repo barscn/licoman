@@ -75,6 +75,20 @@ impl Registry {
         self.providers[*provider_index].read(id)
     }
 
+    /// Route a provenance-carrying read to the owning provider.
+    pub fn read_detailed(&self, id: &str) -> Result<crate::read::ReadResult, LicomanError> {
+        let (provider_index, _) = self.index.get(id).ok_or_else(|| unknown_setting(id))?;
+        self.providers[*provider_index].read_detailed(id)
+    }
+
+    /// Whether this setting reads as Immediate (mock) or Background (I/O).
+    pub fn read_latency(&self, id: &str) -> crate::provider::ReadLatency {
+        match self.index.get(id) {
+            Some((provider_index, _)) => self.providers[*provider_index].read_latency(id),
+            None => crate::provider::ReadLatency::Immediate,
+        }
+    }
+
     /// Route a validated write to the owning provider.
     pub fn write(&self, id: &str, value: &SettingValue) -> Result<(), LicomanError> {
         let (provider_index, _) = self.index.get(id).ok_or_else(|| unknown_setting(id))?;

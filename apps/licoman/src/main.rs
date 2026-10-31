@@ -197,8 +197,12 @@ fn main() {
     // The shipped catalog: built-in module manifests validated and indexed
     // at startup (Phase 04). LICOMAN_DEMO=empty exercises the no-providers
     // path: every scope shows the unavailable state instead of a blank
-    // window.
-    let module_provider = if std::env::var("LICOMAN_DEMO").ok().as_deref() != Some("empty") {
+    // window. LICOMAN_DEMO=reads wires a fixture-backed backend router so
+    // the Phase 05 read paths render deterministically (visual verification
+    // only — the live run uses the real environment).
+    let demo_name = std::env::var("LICOMAN_DEMO").unwrap_or_default();
+    let reads_demo = demo_name == "reads";
+    let module_provider = if demo_name != "empty" {
         let module_registry = licoman_core::modules::ModuleRegistry::load_builtin();
         for rejected in module_registry.rejected() {
             licoman_core::log::error(
@@ -211,9 +215,30 @@ fn main() {
             );
         }
         let module_registry = std::sync::Arc::new(std::sync::Mutex::new(module_registry));
-        let provider = std::sync::Arc::new(licoman_core::modules::ModuleProvider::new(
-            module_registry.clone(),
-        ));
+        let provider = std::sync::Arc::new(if reads_demo {
+            let fixtures =
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+            licoman_core::modules::ModuleProvider::with_router(
+                module_registry.clone(),
+                licoman_core::read::BackendRouter::new(
+                    licoman_core::read::gsettings::GSettingsReadBackend::for_paths(
+                        vec![fixtures.join("discovery/schemas")],
+                        Some(fixtures.join("gsettings/dconf/user")),
+                        vec![fixtures.join("gsettings/dconf/system/site")],
+                    ),
+                    licoman_core::read::file::FileReadBackend::for_dirs(
+                        fixtures.join("alacritty/config"),
+                        fixtures.join("alacritty/home"),
+                        vec![fixtures.join("alacritty/etc")],
+                    ),
+                    licoman_core::read::dbus::DBusReadBackend::with_client(std::sync::Arc::new(
+                        licoman_core::read::dbus::AbsentServiceClient,
+                    )),
+                ),
+            )
+        } else {
+            licoman_core::modules::ModuleProvider::new(module_registry.clone())
+        });
         registry.register(Box::new(licoman_core::modules::ModuleProvider::clone(
             &provider,
         )));
@@ -266,10 +291,26 @@ fn main() {
             // Environment discovery (Phase 03). Demo fixture names replace
             // discovery with a deterministic snapshot; every other run
             // discovers the real environment off the UI thread and watches
-            // the application directories for changes.
-            if licoman_core::discovery::demo_fixtures::demo_snapshot(&demo).is_some() {
+            // the application directories for changes. The `reads` demo
+            // keeps the arch-hyprland fixture environment but runs real
+            // read passes against the fixture-backed router.
+            let demo_env = if demo == "reads" || demo == "reads-power" || demo == "reads-apps" {
+                "arch-hyprland"
+            } else {
+                demo.as_str()
+            };
+            if licoman_core::discovery::demo_fixtures::demo_snapshot(demo_env).is_some() {
                 app.update(cx, |state, cx| {
-                    state.load_demo_environment(&demo, cx);
+                    // The flag must be set before the demo environment
+                    // ingests: the ingest itself schedules the first read
+                    // pass, and the demo-locked guard consults it.
+                    if demo.starts_with("reads") {
+                        state.set_reads_fixture_backed();
+                    }
+                    state.load_demo_environment(demo_env, cx);
+                    if demo == "reads-power" {
+                        state.dispatch(Command::SelectCategory(Some("Power".into())), cx);
+                    }
                 });
             } else {
                 app.update(cx, |state, cx| {
@@ -332,7 +373,30 @@ fn main() {
             if demo == "palette" {
                 main_window.update(cx, |this, cx| this.demo_open_palette(cx));
             }
-            if demo == "apps" || demo == "light-apps" || demo == "all-apps" || demo == "app-detail"
+            if demo == "reads" {
+                // After the fixture read pass published, open the Source
+                // details for a gsettings-backed row (visual verification of
+                // the provenance disclosure).
+                let main_for_details = main_window.downgrade();
+                cx.spawn(async move |cx| {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(2500))
+                        .await;
+                    let _ = main_for_details.update_in(cx, |this, window, cx| {
+                        this.demo_open_source_details(
+                            "shared.appearance.gsettings_color_scheme",
+                            window,
+                            cx,
+                        );
+                    });
+                })
+                .detach();
+            }
+            if demo == "apps"
+                || demo == "light-apps"
+                || demo == "all-apps"
+                || demo == "app-detail"
+                || demo == "reads-apps"
             {
                 let (handle, apps_window) = windows::open_apps_window_returning_entity(&app, cx);
                 if demo == "all-apps" {
@@ -340,13 +404,20 @@ fn main() {
                 }
                 cx.global_mut::<WindowRegistry>()
                     .set_handle(licoman_core::WindowRole::Applications, handle);
-                if demo == "app-detail" {
+                if demo == "app-detail" || demo == "reads-apps" {
                     // Select an installed module-backed app so the detail
                     // pane shows the registry-driven tabs and rows. Wait for
                     // discovery to publish the merged list first; SelectApp
                     // changes no setting state, so the window is notified
                     // explicitly (interactive clicks do this in their
-                    // listeners; a demo hook has no listener).
+                    // listeners; a demo hook has no listener). The reads
+                    // variant selects Alacritty: its rows are read from the
+                    // fixture TOML config through the file backend.
+                    let target = if demo == "reads-apps" {
+                        "app.alacritty"
+                    } else {
+                        "app.mpv"
+                    };
                     let app_for_detail = app.clone();
                     let window_for_detail = apps_window.clone();
                     cx.spawn(async move |cx| {
@@ -354,7 +425,7 @@ fn main() {
                             .timer(std::time::Duration::from_millis(4000))
                             .await;
                         app_for_detail.update(cx, |state, cx| {
-                            let identity = state.select_identity_for_module("app.mpv");
+                            let identity = state.select_identity_for_module(target);
                             state.dispatch(Command::SelectApp { id: identity }, cx);
                         });
                         window_for_detail.update(cx, |_this, cx| {

@@ -28,6 +28,9 @@ pub struct SettingModel {
     pub edited: Option<SettingValue>,
     pub phase: SettingPhase,
     pub readback: Readback,
+    /// Provenance of the last successful read (origin, freshness, source
+    /// details) — the Source details disclosure renders this.
+    pub read_meta: Option<crate::read::ReadResult>,
     /// Set when an apply revealed a restart requirement (descriptor metadata
     /// declares it up front; this flag records it per apply).
     pub restart_required: bool,
@@ -98,22 +101,39 @@ impl Store {
 
     /// Read every registered setting from its provider, then run a
     /// verification pass whose mismatch is reported as an external conflict.
+    ///
+    /// Background-latency settings (real I/O backends — files, GSettings,
+    /// D-Bus) are **not** read here: they stay in `Unknown` and the adapter
+    /// schedules a background read pass, publishing through
+    /// [`Store::publish_read`]. Nothing on the UI thread blocks on I/O
+    /// (05_READ_ONLY_BACKENDS.md §2: "Failure of one backend must not …
+    /// block the UI thread").
     pub fn load(&mut self) {
         self.models.clear();
         self.search_index = SearchIndex::build(self.registry.descriptors());
         let descriptors: Vec<SettingDescriptor> = self.registry.descriptors().to_vec();
         for descriptor in &descriptors {
-            let model = match self.registry.read(&descriptor.id) {
-                Ok(value) => SettingModel {
-                    stored: Some(value),
-                    phase: SettingPhase::Idle,
+            let model = if self.registry.read_latency(&descriptor.id)
+                == crate::provider::ReadLatency::Background
+            {
+                SettingModel {
+                    phase: SettingPhase::Unknown,
                     ..SettingModel::default()
-                },
-                Err(error) => SettingModel {
-                    phase: SettingPhase::Unavailable,
-                    error: Some(error),
-                    ..SettingModel::default()
-                },
+                }
+            } else {
+                match self.registry.read_detailed(&descriptor.id) {
+                    Ok(result) => SettingModel {
+                        stored: Some(result.value.clone()),
+                        read_meta: Some(result),
+                        phase: SettingPhase::Idle,
+                        ..SettingModel::default()
+                    },
+                    Err(error) => SettingModel {
+                        phase: SettingPhase::Unavailable,
+                        error: Some(error),
+                        ..SettingModel::default()
+                    },
+                }
             };
             self.models.insert(descriptor.id.to_string(), model);
         }
@@ -185,6 +205,80 @@ impl Store {
 
     pub fn registry(&self) -> &Registry {
         &self.registry
+    }
+
+    /// Ids whose values come from background (real I/O) backends. The
+    /// adapter reads these off the UI thread and publishes the results.
+    pub fn background_read_ids(&self) -> Vec<String> {
+        self.models
+            .iter()
+            .filter(|(id, _)| {
+                self.registry.read_latency(id) == crate::provider::ReadLatency::Background
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    /// Publish the result of one background read. Staged edits survive
+    /// (the read only refreshes the stored value and provenance); a value
+    /// plus fingerprint identical to the previous read emits no change.
+    /// Returns whether the UI should be notified.
+    pub fn publish_read(
+        &mut self,
+        id: &str,
+        result: Result<crate::read::ReadResult, LicomanError>,
+    ) -> bool {
+        use crate::read::ReadResult as RR;
+        let Some(model) = self.models.get_mut(id) else {
+            return false;
+        };
+        match result {
+            Ok(result) => {
+                let unchanged = match (&model.read_meta, model.stored.as_ref()) {
+                    (Some(previous), Some(stored)) => {
+                        previous.freshness.fingerprint == result.freshness.fingerprint
+                            && previous.origin == result.origin
+                            && stored.equals(&result.value)
+                    }
+                    _ => false,
+                };
+                model.stored = Some(result.value.clone());
+                model.read_meta = Some(result);
+                model.error = None;
+                if !model.phase.holds_pending_edit()
+                    && model.phase != SettingPhase::ExternalConflict
+                {
+                    model.phase = SettingPhase::Idle;
+                }
+                !unchanged
+            }
+            Err(error) => {
+                // A failed background read is a truthful unavailable state —
+                // unless a previous read succeeded (keep the last known value
+                // and surface the error in the details instead of blanking).
+                match model.read_meta {
+                    Some(RR { .. }) if model.stored.is_some() => {
+                        model.error = Some(error);
+                        false
+                    }
+                    _ => {
+                        model.phase = SettingPhase::Unavailable;
+                        model.error = Some(error);
+                        true
+                    }
+                }
+            }
+        }
+    }
+
+    /// Re-run every background read's availability verdict through the
+    /// provider (used when the environment changed): rows whose modules
+    /// became inapplicable get their reason without waiting for the read
+    /// pass. Implemented as a plain reload trigger by the adapter.
+    pub fn background_rows_pending(&self) -> bool {
+        self.models
+            .values()
+            .any(|m| m.phase == SettingPhase::Unknown)
     }
 
     pub fn descriptor(&self, id: &str) -> Option<&SettingDescriptor> {

@@ -314,28 +314,76 @@ schema = "org.gnome.desktop.interface"
 key = "clock-show-weekday"
 "#;
     let registry = ModuleRegistry::load([(ModuleSource::Builtin("g"), REAL.to_string())]);
-    let provider = ModuleProvider::new(Arc::new(Mutex::new(registry)));
+    // Reads go through a fixture router (synthetic schema + dconf fixtures)
+    // so the test never depends on the host's installed schemas.
+    let fixtures =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+    let router = crate::read::BackendRouter::new(
+        crate::read::gsettings::GSettingsReadBackend::for_paths(
+            vec![fixtures.join("discovery/schemas")],
+            Some(fixtures.join("gsettings/dconf/user")),
+            vec![fixtures.join("gsettings/dconf/system/site")],
+        ),
+        crate::read::file::FileReadBackend::for_dirs(
+            fixtures.join("file-config"),
+            fixtures.join("file-home"),
+            vec![],
+        ),
+        crate::read::dbus::DBusReadBackend::with_client(Arc::new(AbsentService)),
+    );
+    let provider = ModuleProvider::with_router(Arc::new(Mutex::new(registry)), router);
     // The Fedora/GNOME fixture carries the gsettings capability AND the
     // schema facts, so module compatibility and the binding presence check
-    // pass and the refusal is the truthful "not readable yet".
+    // pass and the read reaches the Phase 05 backend (fixture-backed).
     provider.set_environment(Some(&demo_fixtures::fedora_gnome_wayland()));
 
     let mut store = store_with(&provider);
     let id = "desktop.gnome.example.clock.show_weekday";
-    let model = store.model(id).expect("model");
-    assert_eq!(model.phase, crate::state::SettingPhase::Unavailable);
-    assert!(
-        model
-            .error
-            .as_ref()
-            .expect("reason")
-            .user_message
-            .contains("Not readable yet")
+    // Background-latency settings start Unknown; the adapter reads them off
+    // the UI thread and publishes.
+    assert_eq!(
+        store.model(id).expect("model").phase,
+        crate::state::SettingPhase::Unknown
     );
-    // Editing is blocked at the store level and refused at the provider level.
+    let read = crate::provider::Provider::read_detailed(&provider, id);
+    assert!(store.publish_read(id, read));
+    let model = store.model(id).expect("model");
+    // The fixture dconf user db sets the key to true: a real read.
+    assert_eq!(model.phase, crate::state::SettingPhase::Idle);
+    assert_eq!(model.stored, Some(SettingValue::Bool(true)));
+    assert_eq!(
+        model.read_meta.as_ref().expect("provenance").origin,
+        crate::read::ValueOrigin::User
+    );
+    // Writes are still refused unconditionally (Phase 06 owns writing).
+    let error =
+        crate::provider::Provider::write(&provider, id, &SettingValue::Bool(false)).unwrap_err();
+    assert_eq!(error.kind, crate::error::ErrorKind::WriteFailed);
+    assert!(error.user_message.contains("Nothing was modified"));
+    // Editing is blocked at the store level (read-only envelope) and
+    // refused at the provider level.
     let report = store.dispatch(Command::Edit {
         id: id.to_string(),
         value: SettingValue::Bool(false),
     });
     assert_eq!(report.outcome, Outcome::NoOp);
+}
+
+/// D-Bus client stub: no PowerProfiles service in these tests.
+struct AbsentService;
+
+impl crate::read::dbus::PowerProfilesClient for AbsentService {
+    fn locate(
+        &self,
+    ) -> Result<Option<(&'static str, &'static str, &'static str)>, crate::read::dbus::ClientError>
+    {
+        Ok(None)
+    }
+    fn property(
+        &self,
+        _endpoint: (&'static str, &'static str, &'static str),
+        _name: &str,
+    ) -> Result<crate::read::dbus::PropertyValue, crate::read::dbus::ClientError> {
+        Err(crate::read::dbus::ClientError::Other("absent".into()))
+    }
 }

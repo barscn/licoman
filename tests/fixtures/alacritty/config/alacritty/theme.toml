@@ -1,0 +1,3 @@
+# Imported by the fixture root config: exercises documented import merge.
+cursor.style.shape = "Beam"
+scrolling.history = 50000

@@ -28,6 +28,10 @@ pub struct BackendFacts {
     pub gsettings_schemas: BTreeMap<String, BTreeSet<String>>,
     /// Well-known names visible on the session bus.
     pub bus_names: BTreeSet<String>,
+    /// Well-known names visible on the system bus (Phase 05: D-Bus
+    /// applicability must check the bus the service actually runs on —
+    /// power-profiles-daemon is a system service).
+    pub bus_names_system: BTreeSet<String>,
 }
 
 /// The kinds of backend facts Licoman can observe.
@@ -120,6 +124,51 @@ pub fn probe_all(
                 }
             },
             evidence: vec![evidence],
+            detail: None,
+        });
+    }
+
+    // ---- D-Bus system bus (Phase 05) ---------------------------------------
+    // The system bus hosts services like power-profiles-daemon. The probe is
+    // passive (Hello + ListNames at the well-known socket) and its absence is
+    // a normal, reportable state — CI containers and minimal installs have
+    // none.
+    let system_address = sources
+        .env
+        .get("DBUS_SYSTEM_BUS_ADDRESS")
+        .cloned()
+        .unwrap_or_else(|| "unix:path=/run/dbus/system_bus_socket".to_string());
+    let system_bus = dbus::probe_session_bus(Some(&system_address), None);
+    if system_bus.available {
+        facts.bus_names_system = system_bus.names.iter().cloned().collect();
+        backends.push(BackendCapability {
+            id: "dbus-system".to_string(),
+            kind: BackendKind::Service,
+            status: BackendStatus::Available,
+            evidence: vec![Evidence::new(
+                EvidenceSource::DBus,
+                Confidence::High,
+                format!(
+                    "system bus reachable; {} well-known names",
+                    system_bus.names.len()
+                ),
+            )],
+            detail: Some(format!("{} names listed", system_bus.names.len())),
+        });
+    } else {
+        backends.push(BackendCapability {
+            id: "dbus-system".to_string(),
+            kind: BackendKind::Service,
+            status: BackendStatus::Unavailable {
+                reason: "No reachable D-Bus system bus".to_string(),
+            },
+            evidence: vec![Evidence::new(
+                EvidenceSource::DBus,
+                Confidence::High,
+                system_bus
+                    .reason
+                    .unwrap_or_else(|| "system bus probe failed".to_string()),
+            )],
             detail: None,
         });
     }

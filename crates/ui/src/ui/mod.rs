@@ -121,12 +121,14 @@ pub fn read_only_value(value: impl Into<SharedString>, theme: &Theme) -> Div {
         .child(value.into())
 }
 
-/// Support pill for the Applications window list and detail header.
+/// Support pill for the Applications window list and detail header. The
+/// labels are the plan's truthful levels (05_READ_ONLY_BACKENDS.md §5:
+/// "Supported (read-only)" / "Partially supported").
 pub fn support_tag(support: SupportLevel) -> Tag {
     match support {
         SupportLevel::Supported => Tag::success().small().child("Supported"),
-        SupportLevel::Partial => Tag::warning().small().child("Partial"),
-        SupportLevel::ReadOnly => Tag::info().small().child("Read-only"),
+        SupportLevel::Partial => Tag::warning().small().child("Partially supported"),
+        SupportLevel::ReadOnly => Tag::info().small().child("Supported (read-only)"),
         SupportLevel::Unsupported => Tag::secondary().small().child("Unsupported"),
     }
 }

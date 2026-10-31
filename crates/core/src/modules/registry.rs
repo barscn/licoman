@@ -356,7 +356,9 @@ fn provenance_lines(def: &ModuleDefinition) -> Vec<String> {
                 Some(property) => format!("dbus {service} {interface}.{property}"),
                 None => format!("dbus {service} {interface}"),
             },
-            super::def::BackendBinding::File { path, format, key } => match key {
+            super::def::BackendBinding::File {
+                path, format, key, ..
+            } => match key {
                 Some(key) => format!("file {} ({format:?}) key {key}", path),
                 None => format!("file {} ({format:?})", path),
             },
@@ -508,6 +510,16 @@ pub fn manifest_value_to_setting_value(
         (ValueKind::Float, super::def::ManifestValue::Int(n)) => Some(SV::Float(*n as f64)),
         (ValueKind::String, super::def::ManifestValue::Str(s)) => Some(SV::Text(s.clone())),
         (ValueKind::Path, super::def::ManifestValue::Str(s)) => Some(SV::Path(s.clone())),
+        (ValueKind::List, super::def::ManifestValue::List(items)) => {
+            let mut strings = Vec::with_capacity(items.len());
+            for item in items {
+                match item {
+                    super::def::ManifestValue::Str(s) => strings.push(s.clone()),
+                    _ => return None,
+                }
+            }
+            Some(SV::List(strings))
+        }
         _ => None,
     }
 }

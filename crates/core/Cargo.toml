@@ -13,7 +13,15 @@ path = "src/lib.rs"
 [dependencies]
 serde = { workspace = true }
 toml = { workspace = true }
+# TOML parse-with-formatting for the file read backend (Phase 05). Chosen
+# over `toml` for the later write phase: documents keep their formatting,
+# so an edit does not rewrite the user's file (05_READ_ONLY_BACKENDS.md §2.B).
+toml_edit = "0.25"
 # JSON Schema generation for the module manifest contract
 # (04_MODULE_SCHEMA_AND_REGISTRY.md §5): the published schema is derived
 # from these canonical Rust types, so contract and code cannot drift.
 schemars = "1"
+# D-Bus client for service-backed reads (Phase 05): blocking API on a
+# background thread; async-io matches the ashpd feature set already in the
+# tree (gpui-base) — mixing tokio there is a compile error.
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }

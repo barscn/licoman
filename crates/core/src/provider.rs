@@ -1,12 +1,13 @@
 //! The provider abstraction (02_FOUNDATION.md §2): probe, read, optional
-//! write, and capabilities. A `watch` method is deliberately **absent** in
-//! this phase — there is no background daemon and no idle polling; change
-//! detection happens on explicit reloads and via the mock's deterministic
-//! read sequencing. `Capabilities::watch` exists so later phases can declare
-//! watch support without reshaping the trait.
+//! write, and capabilities. Phase 05 adds the typed read interface
+//! (05_READ_ONLY_BACKENDS.md §1): `read_detailed` returns the value with
+//! origin, freshness, writability and source details, and `read_latency`
+//! tells the store whether a read is safe on the UI thread (mock) or must
+//! run on a background executor (file, GSettings, D-Bus).
 
 use crate::descriptor::SettingDescriptor;
 use crate::error::LicomanError;
+use crate::read::ReadResult;
 use crate::value::SettingValue;
 
 /// What a provider (or one of its settings) can do. Fail-closed: everything
@@ -17,6 +18,17 @@ pub struct Capabilities {
     pub write: bool,
     /// Reserved for later phases; no Phase 02 provider watches.
     pub watch: bool,
+}
+
+/// Where a read may run. `Background` reads do real I/O (files, D-Bus) and
+/// are bounded by timeouts; the store defers them to a background pass and
+/// publishes results as they arrive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadLatency {
+    /// In-memory, effectively free (mock sources).
+    Immediate,
+    /// Real I/O: must run off the UI thread.
+    Background,
 }
 
 /// Result of probing a provider's availability in this environment.
@@ -55,7 +67,8 @@ impl ProbeResult {
 }
 
 /// One backend over a set of settings. Implementations must be deterministic
-/// enough for tests; they run on the UI thread in Phase 02 (mock data only).
+/// enough for tests; `Immediate` reads run on the UI thread, `Background`
+/// reads run on background executors.
 pub trait Provider {
     /// Stable provider identifier (used in logs and diagnostics).
     fn id(&self) -> &'static str;
@@ -66,8 +79,32 @@ pub trait Provider {
     /// The settings this provider owns, in display order.
     fn descriptors(&self) -> Vec<SettingDescriptor>;
 
-    /// Read the current value at the source.
+    /// Read the current value at the source (value only; see
+    /// [`Provider::read_detailed`]).
     fn read(&self, id: &str) -> Result<SettingValue, LicomanError>;
+
+    /// Read the current value with full provenance. The default maps a
+    /// plain [`Provider::read`] onto a minimal envelope with unknown origin.
+    fn read_detailed(&self, id: &str) -> Result<ReadResult, LicomanError> {
+        let value = self.read(id)?;
+        Ok(ReadResult::new(
+            value,
+            crate::read::ValueOrigin::Unknown,
+            crate::read::SourceDetails {
+                backend_kind: "unknown",
+                target: id.to_string(),
+                origin_note: None,
+                imported: false,
+                diagnostics: Vec::new(),
+            },
+        ))
+    }
+
+    /// Whether reads for this setting are Immediate (mock) or Background
+    /// (real I/O). Default: Immediate.
+    fn read_latency(&self, _id: &str) -> ReadLatency {
+        ReadLatency::Immediate
+    }
 
     /// Write a validated value. Providers that cannot write return an error;
     /// the store consults [`Provider::probe`] capabilities first so this is

@@ -20,12 +20,14 @@ use gpui_kit::component::input::{Input, InputEvent, InputState, NumberInput};
 use gpui_kit::component::select::{SearchableVec, Select, SelectEvent, SelectState};
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState, SliderValue};
 use gpui_kit::component::switch::Switch;
+use gpui_kit::component::v_flex;
 use gpui_kit::{
     AnyElement, AppContext as _, Context, Entity, IntoElement as _, ParentElement as _, Render,
     SharedString, Styled, Subscription, Window, div, px,
 };
 use licoman_core::descriptor::SettingDescriptor;
 use licoman_core::descriptor::{ApplyMode, Control};
+use licoman_core::read::Writable;
 use licoman_core::state::SettingPhase;
 use licoman_core::value::SettingType;
 use licoman_core::value::SettingValue;
@@ -66,7 +68,17 @@ impl ControlSet {
 
         for (descriptor, model) in rows {
             let id = descriptor.id.clone();
-            if model.phase.blocks_editing() || descriptor.control == Control::ReadOnly {
+            // Read-only envelope: a setting the backend reports as
+            // non-writable never gets an interactive entity — a clickable
+            // control would pretend to save (05_READ_ONLY_BACKENDS.md §5).
+            let not_writable = matches!(
+                model.read_meta.as_ref().map(|r| &r.writable),
+                Some(Writable::No { .. }) | Some(Writable::NeedsPermission { .. })
+            );
+            if model.phase.blocks_editing()
+                || descriptor.control == Control::ReadOnly
+                || not_writable
+            {
                 entities.insert(id, ControlEntity::Stateless);
                 continue;
             }
@@ -374,7 +386,8 @@ impl ControlSet {
 }
 
 /// The switch widget for boolean rows: dispatches a typed edit straight to
-/// the store (disabled while the phase blocks editing).
+/// the store. Disabled when the phase blocks editing or the read envelope
+/// says the setting cannot be written yet (Phase 05 read-only rule).
 fn switch_control(
     descriptor: &SettingDescriptor,
     model: &SettingModel,
@@ -383,11 +396,17 @@ fn switch_control(
 ) -> AnyElement {
     let _ = theme;
     let checked = matches!(model.effective(), Some(SettingValue::Bool(true)));
-    let editable = descriptor.apply_mode == ApplyMode::Staged && !model.phase.blocks_editing();
+    let not_writable = matches!(
+        model.read_meta.as_ref().map(|r| &r.writable),
+        Some(Writable::No { .. }) | Some(Writable::NeedsPermission { .. })
+    );
+    let editable = descriptor.apply_mode == ApplyMode::Staged
+        && !model.phase.blocks_editing()
+        && !not_writable;
     let switch_id = SharedString::from(descriptor.id.clone());
     let setting_id = descriptor.id.clone();
     let app = app.clone();
-    Switch::new(switch_id)
+    let switch = Switch::new(switch_id)
         .checked(checked)
         .disabled(!editable)
         .on_click(move |checked: &bool, _window, cx| {
@@ -402,8 +421,23 @@ fn switch_control(
                     cx,
                 );
             });
-        })
-        .into_any_element()
+        });
+    if not_writable {
+        // Disabled switch plus the honest note — never a clickable control
+        // that pretends to save.
+        return v_flex()
+            .gap_0p5()
+            .items_start()
+            .child(switch)
+            .child(
+                div()
+                    .text_size(px(metrics::TEXT_META))
+                    .text_color(theme.muted_foreground)
+                    .child("This setting cannot be changed yet."),
+            )
+            .into_any_element();
+    }
+    switch.into_any_element()
 }
 
 fn div_text(text: String, theme: &gpui_kit::component::Theme) -> gpui_kit::Div {
@@ -453,8 +487,9 @@ fn parse_number(text: &str, setting_type: SettingType) -> Option<SettingValue> {
 }
 
 /// Read-only presentation for rows without an interactive entity: the
-/// unavailable reason, the informational value, or the inert action
-/// explanation — never a fake value.
+/// unavailable reason, the informational value, the inert action
+/// explanation, or the value of a setting Licoman cannot write yet — never
+/// a fake value or a control pretending to save.
 fn read_only_for(
     descriptor: &SettingDescriptor,
     model: &SettingModel,
@@ -481,10 +516,36 @@ fn read_only_for(
             .child("Actions need a trusted backend (not available in this build).")
             .into_any_element();
     }
+    let not_writable = matches!(
+        model.read_meta.as_ref().map(|r| &r.writable),
+        Some(Writable::No { .. })
+    );
     let value = model
         .effective()
         .cloned()
         .unwrap_or(SettingValue::Text(String::new()));
+    if not_writable {
+        // The truthful read-only presentation: the value plus the explicit
+        // "cannot be changed yet" note instead of a clickable control.
+        return v_flex()
+            .gap_0p5()
+            .items_start()
+            .child(
+                div()
+                    .text_size(px(metrics::TEXT_BODY))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme.muted_foreground)
+                    .child(value.display()),
+            )
+            .child(
+                div()
+                    .max_w(px(280.))
+                    .text_size(px(metrics::TEXT_META))
+                    .text_color(theme.muted_foreground)
+                    .child("This setting cannot be changed yet."),
+            )
+            .into_any_element();
+    }
     div()
         .text_size(px(metrics::TEXT_BODY))
         .font_weight(FontWeight::MEDIUM)
@@ -494,7 +555,9 @@ fn read_only_for(
 }
 
 /// Compact truthful status line for detail panes that do not host the full
-/// per-phase action buttons (the Applications window detail).
+/// per-phase action buttons (the Applications window detail). Rows with
+/// read provenance surface the value origin (05_READ_ONLY_BACKENDS.md §3:
+/// the UI must not claim user-overridden when the value came from defaults).
 pub fn phase_status_text(model: &SettingModel) -> Option<String> {
     match model.phase {
         SettingPhase::Unknown => Some("Not read yet".to_string()),
@@ -518,6 +581,16 @@ pub fn phase_status_text(model: &SettingModel) -> Option<String> {
                 .unwrap_or_else(|| "Failed".to_string()),
         ),
         SettingPhase::ExternalConflict => Some("Changed outside Licoman".to_string()),
-        SettingPhase::Idle => None,
+        SettingPhase::Idle => match model.read_meta.as_ref() {
+            // Editable rows keep their clean look; the origin line is for
+            // rows Licoman reads but cannot change.
+            Some(meta) => match &meta.writable {
+                Writable::No { .. } => {
+                    Some(format!("{} — cannot be changed yet", meta.origin.label()))
+                }
+                _ => None,
+            },
+            None => None,
+        },
     }
 }

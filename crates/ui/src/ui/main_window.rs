@@ -14,8 +14,9 @@ use gpui_kit::component::{ActiveTheme as _, Disableable as _, Sizable as _, h_fl
 use gpui_kit::component::{Icon, IconName, WindowExt as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, AppContext, ClickEvent, Context, Entity, FontWeight, MouseButton, MouseDownEvent,
-    ParentElement as _, Render, SharedString, Styled, Subscription, Window, div, px,
+    AnyElement, App, AppContext, ClickEvent, Context, Entity, FontWeight, MouseButton,
+    MouseDownEvent, ParentElement as _, Render, SharedString, Styled, Subscription, Window, div,
+    px,
 };
 use gpui_kit::{
     Focusable as _, InteractiveElement as _, IntoElement as _, StatefulInteractiveElement as _,
@@ -173,6 +174,31 @@ impl MainWindow {
     pub fn demo_open_palette(&mut self, cx: &mut Context<Self>) {
         self.palette_open = true;
         self.palette_selected = 0;
+        cx.notify();
+    }
+
+    /// Demo hook (visual verification): open the Source details dialog for
+    /// one setting id. Interactive clicks always did this through their
+    /// listeners; a demo hook has no listener.
+    pub fn demo_open_source_details(
+        &mut self,
+        setting_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let module_id = self
+            .app
+            .read(cx)
+            .store
+            .descriptor(setting_id)
+            .map(|d| d.module_id.clone())
+            .unwrap_or_default();
+        let (lines, provenance) = source_details_lines(&self.app, setting_id, &module_id, cx);
+        window.open_dialog(cx, move |dialog, _window, cx| {
+            let theme = cx.theme().clone();
+            let panel = details_panel(lines.clone(), provenance.clone(), &theme);
+            dialog.title("Source details").keyboard(true).child(panel)
+        });
         cx.notify();
     }
 
@@ -334,8 +360,13 @@ impl MainWindow {
                 // Static provider notes (why a row is read-only) and known
                 // restart requirements are truthful status lines.
                 if let Some(note) = &row.descriptor.note {
-                    return Some(div().text_color(theme.muted_foreground).child(note.clone()))
-                        .into_any();
+                    return Some(
+                        v_flex()
+                            .gap_1()
+                            .child(div().text_color(theme.muted_foreground).child(note.clone()))
+                            .children(self.source_details_line(row, &theme, cx)),
+                    )
+                    .into_any();
                 }
                 if let Some(target) = row
                     .descriptor
@@ -344,16 +375,21 @@ impl MainWindow {
                     .or_else(|| model_restart_target(&row.model))
                 {
                     return Some(
-                        h_flex()
+                        v_flex()
                             .gap_1()
-                            .items_center()
-                            .text_color(theme.warning)
-                            .child(Icon::new(IconName::TriangleAlert).small())
-                            .child(format!("Applies after restarting {target}")),
+                            .child(
+                                h_flex()
+                                    .gap_1()
+                                    .items_center()
+                                    .text_color(theme.warning)
+                                    .child(Icon::new(IconName::TriangleAlert).small())
+                                    .child(format!("Applies after restarting {target}")),
+                            )
+                            .children(self.source_details_line(row, &theme, cx)),
                     )
                     .into_any();
                 }
-                None
+                self.source_details_line(row, &theme, cx)
             }
             SettingPhase::Dirty => Some(
                 h_flex()
@@ -547,6 +583,59 @@ impl MainWindow {
         }
     }
 
+    /// The Idle status line for rows with read provenance: the value origin,
+    /// the read-only rule when it applies, and a Source details disclosure.
+    /// Nothing here carries configuration contents — only identifiers and
+    /// metadata (05_READ_ONLY_BACKENDS.md §5).
+    fn source_details_line(
+        &mut self,
+        row: &Row,
+        theme: &gpui_kit::component::Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let read_meta = row.model.read_meta.as_ref()?;
+        let origin = read_meta.origin.label().to_string();
+        let read_only = matches!(read_meta.writable, licoman_core::read::Writable::No { .. });
+        let details_button_id = SharedString::from(format!("details-{}", row.descriptor.id));
+        let setting_id = row.descriptor.id.clone();
+        let module_id = row.descriptor.module_id.clone();
+        let app = self.app.clone();
+        let read_only_note = read_only.then(|| " · this setting cannot be changed yet".to_string());
+        Some(
+            v_flex().gap_1().child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        div()
+                            .text_size(px(metrics::TEXT_META))
+                            .text_color(theme.muted_foreground)
+                            .child(match &read_only_note {
+                                Some(note) => format!("{origin}{note}"),
+                                None => origin,
+                            }),
+                    )
+                    .child(
+                        Button::new(details_button_id)
+                            .label("Source details…")
+                            .ghost()
+                            .xsmall()
+                            .on_click(cx.listener(move |_this, _: &ClickEvent, window, cx| {
+                                let (lines, provenance) =
+                                    source_details_lines(&app, &setting_id, &module_id, cx);
+                                window.open_dialog(cx, move |dialog, _window, cx| {
+                                    let theme = cx.theme().clone();
+                                    let panel =
+                                        details_panel(lines.clone(), provenance.clone(), &theme);
+                                    dialog.title("Source details").keyboard(true).child(panel)
+                                });
+                            })),
+                    ),
+            ),
+        )
+        .into_any()
+    }
+
     // ---- layout -----------------------------------------------------------
 
     fn render_sidebar(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -626,18 +715,29 @@ impl MainWindow {
 
     fn render_content(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
-        let scope = self.app.read(cx).store.selected_scope();
-        let rows: Vec<Row> = self
-            .app
-            .read(cx)
-            .store
-            .scope_rows(scope)
-            .into_iter()
-            .map(|(descriptor, model)| Row { descriptor, model })
-            .collect();
+        let (scope, category_filter, rows): (Scope, Option<String>, Vec<Row>) = {
+            let state = self.app.read(cx);
+            let scope = state.store.selected_scope();
+            let category_filter = state.store.selected_category().map(str::to_string);
+            let rows: Vec<Row> = state
+                .store
+                .scope_rows(scope)
+                .into_iter()
+                .map(|(descriptor, model)| Row { descriptor, model })
+                .collect();
+            (scope, category_filter, rows)
+        };
 
         let mut groups: Vec<AnyElement> = Vec::new();
         for category in self.app.read(cx).store.categories(scope) {
+            // An explicit category selection narrows the content to that one
+            // group (the palette and demo hooks dispatch it; scope switches
+            // reset it).
+            if let Some(filter) = &category_filter
+                && category != *filter
+            {
+                continue;
+            }
             let cat_rows: Vec<Row> = rows
                 .iter()
                 .filter(|row| row.descriptor.category == category)
@@ -678,15 +778,17 @@ impl MainWindow {
                                 .child(
                                     gpui_kit::component::tag::Tag::secondary()
                                         .small()
-                                        .child("Mock values"),
+                                        .child("Read-only reads"),
                                 )
                                 .child(
                                     div()
                                         .text_size(px(metrics::TEXT_META))
                                         .text_color(theme.muted_foreground)
                                         .child(
-                                            "Rows come from built-in module manifests; mock-backed \
-                                             values are samples. Real-backend rows stay read-only.",
+                                            "Rows come from built-in module manifests. Mock-backed \
+                                             values are declared samples; real backends (GSettings, \
+                                             config files, D-Bus services) are read from this \
+                                             system and cannot be changed yet.",
                                         ),
                                 ),
                         )
@@ -971,6 +1073,115 @@ fn model_restart_target(model: &SettingModel) -> Option<String> {
     } else {
         None
     }
+}
+
+/// Collect the Source details data for one setting: exact backend type,
+/// schema/key or path, value origin, freshness and diagnostics, plus the
+/// module's recorded provenance. By construction this carries metadata
+/// only — never configuration contents (05_READ_ONLY_BACKENDS.md §4).
+fn source_details_lines(
+    app: &Entity<AppState>,
+    setting_id: &str,
+    module_id: &str,
+    cx: &App,
+) -> (Vec<(String, String)>, Vec<String>) {
+    let state = app.read(cx);
+    let model = state.store.model(setting_id);
+    let provenance: Vec<String> = state
+        .module_provider()
+        .with_registry(|registry| registry.provenance_of(module_id));
+
+    let mut lines: Vec<(String, String)> = Vec::new();
+    if let Some(meta) = model.and_then(|m| m.read_meta.as_ref()) {
+        lines.push(("Backend".into(), meta.details.backend_kind.to_string()));
+        lines.push(("Source".into(), meta.details.target.clone()));
+        let mut origin = meta.origin.label().to_string();
+        if let Some(note) = &meta.details.origin_note {
+            origin.push_str(&format!(" — {note}"));
+        }
+        lines.push(("Value origin".into(), origin));
+        if meta.details.imported {
+            lines.push((
+                "Imported".into(),
+                "yes (the value comes from an imported file)".into(),
+            ));
+        }
+        let age = meta
+            .freshness
+            .read_at
+            .elapsed()
+            .map(|d| format!("{} s ago", d.as_secs()))
+            .unwrap_or_else(|_| "just now".to_string());
+        lines.push((
+            "Freshness".into(),
+            format!("read {age} · fingerprint {}", meta.freshness.fingerprint),
+        ));
+        match &meta.writable {
+            licoman_core::read::Writable::Yes => {
+                lines.push(("Writable".into(), "yes (mock source)".into()));
+            }
+            licoman_core::read::Writable::No { reason } => {
+                lines.push(("Writable".into(), reason.clone()));
+            }
+            licoman_core::read::Writable::NeedsPermission { auth } => {
+                lines.push(("Writable".into(), format!("requires authorization: {auth}")));
+            }
+            licoman_core::read::Writable::Unknown => {}
+        }
+        for diagnostic in &meta.details.diagnostics {
+            lines.push(("Diagnostic".into(), diagnostic.clone()));
+        }
+    } else if let Some(error) = model.and_then(|m| m.error.as_ref()) {
+        lines.push(("State".into(), "unavailable".into()));
+        lines.push(("Reason".into(), error.user_message.clone()));
+        lines.push(("Technical".into(), error.technical.clone()));
+    }
+    (lines, provenance)
+}
+
+/// Render the Source details panel from its (clonable) data.
+fn details_panel(
+    lines: Vec<(String, String)>,
+    provenance: Vec<String>,
+    theme: &gpui_kit::component::Theme,
+) -> AnyElement {
+    let mut panel = v_flex().gap_2();
+    for (label, value) in lines {
+        panel = panel.child(
+            v_flex()
+                .gap_0p5()
+                .child(
+                    div()
+                        .text_size(px(metrics::TEXT_META))
+                        .text_color(theme.muted_foreground)
+                        .child(label),
+                )
+                .child(div().text_size(px(metrics::TEXT_BODY)).child(value)),
+        );
+    }
+    if !provenance.is_empty() {
+        let mut prov = v_flex().gap_0p5();
+        for line in provenance {
+            prov = prov.child(
+                div()
+                    .text_size(px(metrics::TEXT_META))
+                    .text_color(theme.muted_foreground)
+                    .child(line),
+            );
+        }
+        panel = panel.child(
+            v_flex()
+                .gap_0p5()
+                .child(
+                    div()
+                        .text_size(px(metrics::TEXT_META))
+                        .text_color(theme.muted_foreground)
+                        .child("Module provenance"),
+                )
+                .child(prov),
+        );
+    }
+    panel.into_any_element()
 }
 
 fn scope_item(

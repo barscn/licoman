@@ -157,6 +157,7 @@ pub fn arch_hyprland_wayland() -> EnvironmentSnapshot {
             "org.freedesktop.portal.Desktop",
             "org.freedesktop.Notifications",
         ]),
+        bus_names_system: bus_names(&["org.freedesktop.UPower.PowerProfiles"]),
     }
 }
 
@@ -201,6 +202,7 @@ pub fn fedora_gnome_wayland() -> EnvironmentSnapshot {
             "org.gnome.Shell",
             "org.gnome.SessionManager",
         ]),
+        bus_names_system: Default::default(),
     }
 }
 
@@ -230,6 +232,7 @@ pub fn ubuntu_gnome_x11() -> EnvironmentSnapshot {
         problems: Vec::new(),
         gsettings_schemas: schema_facts(),
         bus_names: bus_names(&["org.freedesktop.portal.Desktop"]),
+        bus_names_system: Default::default(),
     }
 }
 
@@ -260,6 +263,7 @@ pub fn debian_xfce() -> EnvironmentSnapshot {
         problems: Vec::new(),
         gsettings_schemas: schema_facts(),
         bus_names: bus_names(&["org.freedesktop.portal.Desktop"]),
+        bus_names_system: Default::default(),
     }
 }
 
@@ -283,6 +287,7 @@ pub fn multi_xdg_ambiguous() -> EnvironmentSnapshot {
         problems: Vec::new(),
         gsettings_schemas: BTreeMap::new(),
         bus_names: Default::default(),
+        bus_names_system: Default::default(),
     }
 }
 
@@ -298,6 +303,7 @@ pub fn empty_environment() -> EnvironmentSnapshot {
         problems: Vec::new(),
         gsettings_schemas: BTreeMap::new(),
         bus_names: Default::default(),
+        bus_names_system: Default::default(),
     }
 }
 

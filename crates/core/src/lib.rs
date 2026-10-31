@@ -40,6 +40,7 @@ pub mod model;
 pub mod modules;
 pub mod prefs;
 pub mod provider;
+pub mod read;
 pub mod registry;
 pub mod search;
 pub mod state;

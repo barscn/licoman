@@ -333,3 +333,99 @@ declaration order.
 **Why:** the plan requires "registry app definitions provide its list,
 category tabs and detail panels"; per-setting groups are the smallest
 honest way to derive tabs, and explicit orders keep grouping deterministic.
+
+## D38 — The typed read layer lives in `licoman_core::read`, one envelope per read
+
+**Decision:** Phase 05's read API is `crates/core/src/read/`: a
+`SettingsReadBackend` trait (`probe` / bounded `read` / `watch_paths`) and a
+`ReadResult` envelope — typed `SettingValue` plus `ValueOrigin`
+(default/system/user/managed/runtime/unknown), `Writable` (fail-closed:
+real backends report `No` in this phase), `Freshness` (read time + FNV-1a
+fingerprint over the source bytes), `RestartEffect`, and `SourceDetails`
+(metadata only, never contents). A `BackendRouter` maps a validated
+`BackendBinding` to its backend family. The `Provider` trait gains
+`read_detailed` and a `read_latency` hint (Immediate = mock, Background =
+real I/O); the store defers Background rows to a generation-guarded
+background read pass and publishes per row.
+
+**Why:** 05 §1 demands a typed API with provenance rather than per-module
+subprocesses; the latency hint is what keeps real I/O off the UI thread
+without reshaping the synchronous store (05 §2: one backend failing must
+not block the UI).
+
+## D39 — GSettings is read from the platform's own databases, no subprocess
+
+**Decision:** the GSettings backend parses the same GVDB files the platform
+uses: `gschemas.compiled` (schema presence, `.path` attribute, and the
+default value decoded from GLib's framed *non-normal* GVariant form) and
+dconf databases (user db first — highest priority — then the system
+databases listed in the dconf profile). Origin mapping: user db → `User`,
+system db → `Managed`, otherwise the schema default → `Default`. A
+relocatable schema (no `.path`) reads defaults-only with a disclosed
+degraded note; `GSETTINGS_BACKEND` other than dconf adds a diagnostic.
+No `gsettings` CLI, no shell, no library dependency: the existing
+Phase 03 GVDB parser was extended (`lookup_schema_value`,
+`lookup_schema_path`, `has_schema`, `dconf_lookup`) with a bounded
+non-normal GVariant decoder (`read::gvariant`) verified byte-for-byte
+against a real `~/.config/dconf/user`, a `dconf compile` scratch db, and
+the system `gschemas.compiled`.
+
+**Why:** 05 §2.A prefers native APIs and forbids shells; the on-disk
+databases *are* the native storage, and the formats are stable, bounded,
+and fully testable offline. Arrays/dictionaries are an explicit
+unsupported-type error, never a guess.
+
+## D40 — Alacritty TOML: documented search paths plus the documented import merge
+
+**Decision:** the file backend implements the official Alacritty
+resolution: candidates `$XDG_CONFIG_HOME/alacritty/alacritty.toml`,
+`$XDG_CONFIG_HOME/alacritty.toml`, `$HOME/.config/alacritty/alacritty.toml`,
+`$HOME/.alacritty.toml`, `/etc/alacritty/alacritty.toml` (first existing
+wins as root), and `general.import` semantics — "Imports are loaded in
+order, skipping all missing files, with the importing file being loaded
+last" / "If a field is already present in a previous import, it will be
+replaced" — so the merge order is [imports…, root] and the last loader
+wins. Per-setting provenance records which file won and whether it was an
+import. Bounds: 256 KiB/file, import depth ≤ 8, ≤ 32 files, cycle
+detection along the current chain (duplicate imports are allowed; true
+cycles are skipped with a diagnostic), invalid TOML/UTF-8 are distinct
+errors, and every canonicalized path must stay inside the authorized
+roots (config home, home, `/etc/alacritty`) — symlink escapes are
+rejected, not followed. `toml_edit` parses (the later write phase needs
+formatting preservation). Missing config is a normal state: no value is
+invented because Licoman ships no validated built-in defaults. Non-TOML
+file bindings (e.g. Hyprland keyfile) stay recorded-but-unread.
+
+**Why:** 05 §2.B requires real documented precedence; a parsed first file
+must never be shown as the effective config, and the security rules cap
+imports, sizes and traversal (05 §4).
+
+## D41 — Power profiles over zbus with a bounded client boundary
+
+**Decision:** the D-Bus backend uses `zbus` 5 (blocking API, async-io
+feature set matching the ashpd already in the tree) behind a
+`PowerProfilesClient` trait; the backend bounds *every* client call with a
+worker thread + 3 s timeout, so an unresponsive service — real or
+injected — becomes a `Timeout` error instead of a hang. Name probing is
+passive `ListNames` over both endpoints (`org.freedesktop.UPower.PowerProfiles`
+and legacy `net.hadess.PowerProfiles`); absent service, unreachable bus,
+timeout and denied replies are distinct states. `ActiveProfile` and
+`Profiles` read as runtime values (`ValueOrigin::Runtime`). Discovery now
+also probes the **system bus** names (the session-bus-only applicability
+check would never see a system service); no service is ever activated.
+
+**Why:** 05 §2.C names zbus and demands absence/connect-failure distinction
+and no polling; the trait boundary keeps the whole §6.3 fixture matrix
+testable without a daemon on CI.
+
+## D42 — Phase 05 is read-only end to end
+
+**Decision:** every real backend reports `Writable::No` ("… cannot be
+changed yet"); the UI renders non-writable rows through the read-only path
+(value + explicit note, disabled controls, no entities built), writes to
+real backends are refused unconditionally (unchanged from Phase 04), and
+`licoman_core` gained `toml_edit` + `zbus` as its only new dependencies.
+
+**Why:** the plan's stop condition — "Do not enable real writes merely
+because a read was successful" — is enforced by the envelope, not by
+convention.

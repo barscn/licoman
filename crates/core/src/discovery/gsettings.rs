@@ -240,6 +240,276 @@ pub fn parse_compiled_schemas(data: &[u8]) -> Result<Vec<(String, Vec<String>)>,
     Ok(schemas)
 }
 
+/// Look up the raw framed value stored for `schema`/`key` in a compiled
+/// schema database (`gschemas.compiled`). Returns `Ok(None)` when the
+/// schema or key is absent — a normal, reportable state, not an error.
+/// The returned bytes are the GVDB framed value
+/// (`[body][pad][signature]`, see `crate::read::gvariant`).
+pub fn lookup_schema_value<'a>(
+    data: &'a [u8],
+    schema: &str,
+    key: &str,
+) -> Result<Option<&'a [u8]>, GvdbError> {
+    if data.len() < 24 {
+        return Err(GvdbError::TooSmall);
+    }
+    let sig0 = u32_le(data, 0, "signature0")?;
+    let sig1 = u32_le(data, 4, "signature1")?;
+    if (sig0, sig1) != (1_918_981_703, 1_953_390_953) {
+        return Err(GvdbError::BadSignature);
+    }
+    if u32_le(data, 8, "version")? != 0 {
+        return Err(GvdbError::UnsupportedByteOrder);
+    }
+    let root = deref_pointer(
+        data,
+        u32_le(data, 16, "root start")?,
+        u32_le(data, 20, "root end")?,
+        4,
+    )?;
+    let root_table = parse_hash_table(data, root)?;
+
+    let mut root_list: Option<Item> = None;
+    for index in 0..root_table.n_items {
+        let item = read_item(data, &root_table, index)?;
+        if item.parent == PARENT_NONE && item.key.is_empty() && item.item_type == b'L' {
+            root_list = Some(item);
+            break;
+        }
+    }
+    let Some(root_list) = root_list else {
+        return Err(GvdbError::Truncated("root list item"));
+    };
+
+    for index in list_children(data, &root_table, &root_list)? {
+        let item = read_item(data, &root_table, index)?;
+        if item.item_type != b'H' || item.key != schema.as_bytes() {
+            continue;
+        }
+        let (start, end) = parse_pointer(item.value);
+        let pointer = deref_pointer(data, start, end, 4)?;
+        let sub_table = parse_hash_table(data, pointer)?;
+
+        let mut schema_list: Option<Item> = None;
+        for sub_index in 0..sub_table.n_items {
+            let sub_item = read_item(data, &sub_table, sub_index)?;
+            if sub_item.parent == PARENT_NONE
+                && sub_item.key.is_empty()
+                && sub_item.item_type == b'L'
+            {
+                schema_list = Some(sub_item);
+                break;
+            }
+        }
+        let Some(schema_list) = schema_list else {
+            return Ok(None);
+        };
+        for child in list_children(data, &sub_table, &schema_list)? {
+            let child_item = read_item(data, &sub_table, child)?;
+            if child_item.item_type == b'v' && child_item.key == key.as_bytes() {
+                let (start, end) = parse_pointer(child_item.value);
+                let pointer = deref_pointer(data, start, end, 1)?;
+                return Ok(Some(&data[pointer.start..pointer.end]));
+            }
+        }
+        return Ok(None);
+    }
+    Ok(None)
+}
+
+/// Look up a raw framed value in a **dconf database** (user or system db).
+///
+/// dconf shares the GVDB item format but stores a directory *trie* inside
+/// one root table: directory items (type `'L'`) point at a list of child
+/// item indices in the same table, leaf items (type `'v'`) hold the value.
+/// `path` is the full key path, e.g. `/org/gnome/desktop/interface/color-scheme`.
+/// Verified against a real user db and a `dconf compile` scratch db.
+pub fn dconf_lookup<'a>(data: &'a [u8], path: &str) -> Result<Option<&'a [u8]>, GvdbError> {
+    if data.len() < 24 {
+        return Err(GvdbError::TooSmall);
+    }
+    let sig0 = u32_le(data, 0, "signature0")?;
+    let sig1 = u32_le(data, 4, "signature1")?;
+    if (sig0, sig1) != (1_918_981_703, 1_953_390_953) {
+        return Err(GvdbError::BadSignature);
+    }
+    if u32_le(data, 8, "version")? != 0 {
+        return Err(GvdbError::UnsupportedByteOrder);
+    }
+    let root = deref_pointer(
+        data,
+        u32_le(data, 16, "root start")?,
+        u32_le(data, 20, "root end")?,
+        4,
+    )?;
+    let root_table = parse_hash_table(data, root)?;
+
+    // The root list item: parent none, type 'L' (key may be empty or "/").
+    let mut root_list: Option<Item> = None;
+    for index in 0..root_table.n_items {
+        let item = read_item(data, &root_table, index)?;
+        if item.parent == PARENT_NONE && item.item_type == b'L' {
+            root_list = Some(item);
+            break;
+        }
+    }
+    let Some(root_list) = root_list else {
+        return Err(GvdbError::Truncated("root list item"));
+    };
+
+    // Walk the path segment by segment through the trie.
+    let segments: Vec<&str> = path
+        .trim_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+    if segments.is_empty() {
+        return Ok(None);
+    }
+    // Child items of a directory item = its 'L' pointer list (indices into
+    // the same table). The root list is the top directory's list.
+    let mut current_list = list_children(data, &root_table, &root_list)?;
+    for (depth, segment) in segments.iter().enumerate() {
+        let last = depth + 1 == segments.len();
+        let mut found = None;
+        for index in &current_list {
+            let item = read_item(data, &root_table, *index)?;
+            let name = String::from_utf8_lossy(item.key);
+            let is_dir = name.ends_with('/') && !last;
+            let matches = if is_dir {
+                name.trim_end_matches('/') == *segment
+            } else {
+                !name.ends_with('/') && name == *segment
+            };
+            if matches {
+                found = Some(item);
+                break;
+            }
+        }
+        let Some(item) = found else {
+            return Ok(None);
+        };
+        if last {
+            if item.item_type != b'v' {
+                return Ok(None); // path names a directory, not a key
+            }
+            let (start, end) = parse_pointer(item.value);
+            let pointer = deref_pointer(data, start, end, 1)?;
+            return Ok(Some(&data[pointer.start..pointer.end]));
+        }
+        if item.item_type != b'L' {
+            return Ok(None); // a leaf where a directory was expected
+        }
+        current_list = list_children(data, &root_table, &item)?;
+    }
+    Ok(None)
+}
+
+/// Read the schema's declared dconf path (the `.path` item stored next to
+/// the keys in the schema's sub-table, e.g. `/org/licoman/test/`).
+/// `None` = relocatable schema: it has no fixed path, so dconf overrides
+/// cannot be located for it (defaults-only reading, reported as degraded).
+pub fn lookup_schema_path(data: &[u8], schema: &str) -> Result<Option<String>, GvdbError> {
+    if data.len() < 24 {
+        return Err(GvdbError::TooSmall);
+    }
+    let sig0 = u32_le(data, 0, "signature0")?;
+    let sig1 = u32_le(data, 4, "signature1")?;
+    if (sig0, sig1) != (1_918_981_703, 1_953_390_953) {
+        return Err(GvdbError::BadSignature);
+    }
+    if u32_le(data, 8, "version")? != 0 {
+        return Err(GvdbError::UnsupportedByteOrder);
+    }
+    let root = deref_pointer(
+        data,
+        u32_le(data, 16, "root start")?,
+        u32_le(data, 20, "root end")?,
+        4,
+    )?;
+    let root_table = parse_hash_table(data, root)?;
+
+    let mut root_list: Option<Item> = None;
+    for index in 0..root_table.n_items {
+        let item = read_item(data, &root_table, index)?;
+        if item.parent == PARENT_NONE && item.key.is_empty() && item.item_type == b'L' {
+            root_list = Some(item);
+            break;
+        }
+    }
+    let Some(root_list) = root_list else {
+        return Err(GvdbError::Truncated("root list item"));
+    };
+
+    for index in list_children(data, &root_table, &root_list)? {
+        let item = read_item(data, &root_table, index)?;
+        if item.item_type != b'H' || item.key != schema.as_bytes() {
+            continue;
+        }
+        let (start, end) = parse_pointer(item.value);
+        let pointer = deref_pointer(data, start, end, 4)?;
+        let sub_table = parse_hash_table(data, pointer)?;
+        for sub_index in 0..sub_table.n_items {
+            let sub_item = read_item(data, &sub_table, sub_index)?;
+            if sub_item.item_type == b'v' && sub_item.key == b".path" {
+                let (start, end) = parse_pointer(sub_item.value);
+                let pointer = deref_pointer(data, start, end, 1)?;
+                let raw = &data[pointer.start..pointer.end];
+                // Framed string value; decode with the shared bounded
+                // decoder instead of re-implementing the framing here.
+                return match crate::read::gvariant::decode_framed(raw, false) {
+                    Ok(crate::read::gvariant::GVariantValue::Str(path)) => Ok(Some(path)),
+                    _ => Ok(None),
+                };
+            }
+        }
+        return Ok(None);
+    }
+    Ok(None)
+}
+
+/// Whether the schema id exists in a compiled schema database (its
+/// sub-table is present), regardless of relocatable/non-relocatable.
+pub fn has_schema(data: &[u8], schema: &str) -> Result<bool, GvdbError> {
+    if data.len() < 24 {
+        return Err(GvdbError::TooSmall);
+    }
+    let sig0 = u32_le(data, 0, "signature0")?;
+    let sig1 = u32_le(data, 4, "signature1")?;
+    if (sig0, sig1) != (1_918_981_703, 1_953_390_953) {
+        return Err(GvdbError::BadSignature);
+    }
+    if u32_le(data, 8, "version")? != 0 {
+        return Err(GvdbError::UnsupportedByteOrder);
+    }
+    let root = deref_pointer(
+        data,
+        u32_le(data, 16, "root start")?,
+        u32_le(data, 20, "root end")?,
+        4,
+    )?;
+    let root_table = parse_hash_table(data, root)?;
+
+    let mut root_list: Option<Item> = None;
+    for index in 0..root_table.n_items {
+        let item = read_item(data, &root_table, index)?;
+        if item.parent == PARENT_NONE && item.key.is_empty() && item.item_type == b'L' {
+            root_list = Some(item);
+            break;
+        }
+    }
+    let Some(root_list) = root_list else {
+        return Err(GvdbError::Truncated("root list item"));
+    };
+    for index in list_children(data, &root_table, &root_list)? {
+        let item = read_item(data, &root_table, index)?;
+        if item.item_type == b'H' && item.key == schema.as_bytes() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

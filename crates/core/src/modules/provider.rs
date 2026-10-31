@@ -1,17 +1,16 @@
 //! The provider bridge: exposes the module registry through the existing
 //! [`Provider`] trait so the Phase 02 [`crate::model::Store`], command
 //! vocabulary and rendering paths keep working unchanged
-//! (04_MODULE_SCHEMA_AND_REGISTRY.md §4: "Bind typed value state (mock reads
-//! only in this phase)").
+//! (04_MODULE_SCHEMA_AND_REGISTRY.md §4).
 //!
 //! Read/write rules, fail-closed:
 //!
 //! - **mock** bindings serve declared defaults (never invented values) and
 //!   accept in-memory writes so staged/immediate flows remain exercisable.
-//! - **gsettings / dbus / file** bindings are *declared, validated and
-//!   recorded* (provenance) but reads fail with "not readable yet" and
-//!   writes are refused unconditionally — no real setting is touched before
-//!   the read-only backends (Phase 05) and the safe write engine (Phase 06).
+//! - **gsettings / dbus / file** bindings read through the Phase 05 backend
+//!   router (05_READ_ONLY_BACKENDS.md): typed values with origin and
+//!   freshness, bounded I/O, background latency. Writes are refused
+//!   unconditionally — the write engine is Phase 06.
 //! - `read_only` policy and `required_auth` settings refuse writes with
 //!   distinct, user-safe errors.
 
@@ -23,13 +22,24 @@ use super::registry::ModuleRegistry;
 use crate::descriptor::SettingDescriptor;
 use crate::error::{ErrorKind, LicomanError};
 use crate::modules::def::ValueKind;
-use crate::provider::{Capabilities, ProbeResult, Provider};
+use crate::provider::{Capabilities, ProbeResult, Provider, ReadLatency};
+use crate::read::{BackendRouter, ReadResult, SourceDetails, ValueOrigin, Writable};
 use crate::value::SettingValue;
 
 /// Mock-backed settings whose writes are rejected to exercise the visible
 /// failure flow (same deterministic behavior the Phase 02 fixture catalog
 /// had). Purely an in-memory mock concern; real backends refuse anyway.
 const MOCK_FAIL_WRITES: &[&str] = &["shared.network.dns"];
+
+/// The per-setting facts the read/write paths need from the registry.
+type SettingFacts = (
+    crate::modules::def::BackendBinding,
+    Option<ValueKind>,
+    Option<super::def::ManifestValue>,
+    bool,
+    ApplyPolicy,
+    Option<String>,
+);
 
 /// Cheap to clone: the adapter holds one handle (to refresh the environment
 /// and read module metadata) while another clone is registered as the
@@ -38,15 +48,21 @@ const MOCK_FAIL_WRITES: &[&str] = &["shared.network.dns"];
 pub struct ModuleProvider {
     registry: Arc<Mutex<ModuleRegistry>>,
     written: Arc<Mutex<HashMap<String, SettingValue>>>,
+    router: BackendRouter,
 }
 
 impl ModuleProvider {
-    /// Wrap a registry. The adapter keeps a clone to update the environment;
-    /// another clone stays behind the `Provider` trait.
+    /// Wrap a registry with a live backend router.
     pub fn new(registry: Arc<Mutex<ModuleRegistry>>) -> Self {
+        Self::with_router(registry, BackendRouter::live())
+    }
+
+    /// Wrap a registry with an explicit backend router (fixtures, demos).
+    pub fn with_router(registry: Arc<Mutex<ModuleRegistry>>, router: BackendRouter) -> Self {
         Self {
             registry,
             written: Arc::new(Mutex::new(HashMap::new())),
+            router,
         }
     }
 
@@ -68,12 +84,77 @@ impl ModuleProvider {
         read(&registry)
     }
 
+    /// The backend router handle (watch paths for the settings watcher).
+    pub fn router(&self) -> &BackendRouter {
+        &self.router
+    }
+
     fn setting_error(&self, id: &str, reason: String) -> LicomanError {
         LicomanError::new(
             ErrorKind::Unavailable,
             reason,
             format!("module registry status for {id:?}"),
         )
+    }
+
+    /// The (backend, kind, default, nullable, policy, auth) tuple for one
+    /// registered, available setting.
+    fn setting_facts(&self, id: &str) -> Result<SettingFacts, LicomanError> {
+        {
+            let registry = self.registry.lock().expect("registry lock");
+            registry
+                .setting_status(id)
+                .map_err(|reason| self.setting_error(id, reason))?;
+            let (_def, setting) = registry
+                .setting(id)
+                .ok_or_else(|| self.setting_error(id, "This setting is not registered.".into()))?;
+            Ok((
+                setting.backend.clone(),
+                setting.kind,
+                setting.default.clone(),
+                setting.nullable,
+                setting.policy,
+                setting.required_auth.clone(),
+            ))
+        }
+    }
+
+    /// The mock value source (declared defaults, then staged writes).
+    fn read_mock(
+        &self,
+        id: &str,
+        kind: Option<ValueKind>,
+        default: Option<super::def::ManifestValue>,
+        nullable: bool,
+    ) -> Result<SettingValue, LicomanError> {
+        if let Some(written) = self.written.lock().expect("written lock").get(id) {
+            return Ok(written.clone());
+        }
+        if let Some(default) = &default {
+            let kind = kind.expect("validated: non-action settings declare a type");
+            return super::registry::manifest_value_to_setting_value(default, kind).ok_or_else(
+                || {
+                    LicomanError::new(
+                        ErrorKind::Unavailable,
+                        "The declared default value does not match this setting's type.",
+                        format!("default coercion failed for {id:?}"),
+                    )
+                },
+            );
+        }
+        if nullable {
+            return Ok(match kind {
+                Some(ValueKind::Path) => SettingValue::Path(String::new()),
+                Some(ValueKind::List) => SettingValue::List(Vec::new()),
+                _ => SettingValue::Text(String::new()),
+            });
+        }
+        Err(LicomanError::new(
+            ErrorKind::Unavailable,
+            "This setting has no value yet: no default is declared and mock reads have \
+             nothing to serve.",
+            format!("mock binding for {id:?} has no default"),
+        ))
     }
 }
 
@@ -83,14 +164,13 @@ impl Provider for ModuleProvider {
     }
 
     fn probe(&self) -> ProbeResult {
-        // Read is real (mock value source); write is advertised because
-        // mock-backed settings accept in-memory writes — per-setting gating
-        // happens in [`Provider::write`] and fails closed for everything
-        // else.
+        // Read is real (mock value source + Phase 05 backends); write is
+        // advertised because mock-backed settings accept in-memory writes —
+        // per-setting gating happens in [`Provider::write`].
         ProbeResult::available(Capabilities {
             read: true,
             write: true,
-            watch: false,
+            watch: true,
         })
     }
 
@@ -98,62 +178,61 @@ impl Provider for ModuleProvider {
         self.with_registry(|registry| registry.descriptors().to_vec())
     }
 
-    fn read(&self, id: &str) -> Result<SettingValue, LicomanError> {
-        let (value_kind, default, backend, nullable) = {
-            let registry = self.registry.lock().expect("registry lock");
-            registry
-                .setting_status(id)
-                .map_err(|reason| self.setting_error(id, reason))?;
-            let (_def, setting) = registry
-                .setting(id)
-                .ok_or_else(|| self.setting_error(id, "This setting is not registered.".into()))?;
-            (
-                setting.kind,
-                setting.default.clone(),
-                setting.backend.clone(),
-                setting.nullable,
-            )
-        };
+    fn read_latency(&self, id: &str) -> ReadLatency {
+        match self.setting_facts(id) {
+            Ok((backend, ..)) if backend.is_mock() => ReadLatency::Immediate,
+            Ok(_) => ReadLatency::Background,
+            Err(_) => ReadLatency::Immediate,
+        }
+    }
 
-        // Mock-only reads in this phase (declared defaults or explicit
-        // not-set; the registry never invents a value).
+    fn read(&self, id: &str) -> Result<SettingValue, LicomanError> {
+        self.read_detailed(id).map(|result| result.value)
+    }
+
+    fn read_detailed(&self, id: &str) -> Result<ReadResult, LicomanError> {
+        let (backend, kind, default, nullable, policy, auth) = self.setting_facts(id)?;
+
         if backend.is_mock() {
-            if let Some(written) = self.written.lock().expect("written lock").get(id) {
-                return Ok(written.clone());
-            }
-            if let Some(default) = &default {
-                let kind = value_kind.expect("validated: non-action settings declare a type");
-                return manifest_value(default, kind).ok_or_else(|| {
-                    LicomanError::new(
-                        ErrorKind::Unavailable,
-                        "The declared default value does not match this setting's type.",
-                        format!("default coercion failed for {id:?}"),
-                    )
-                });
-            }
-            if nullable {
-                return Ok(match value_kind {
-                    Some(ValueKind::Path) => SettingValue::Path(String::new()),
-                    _ => SettingValue::Text(String::new()),
-                });
-            }
-            return Err(LicomanError::new(
-                ErrorKind::Unavailable,
-                "This setting has no value yet: no default is declared and mock reads have \
-                 nothing to serve. Real reads arrive with Phase 05.",
-                format!("mock binding for {id:?} has no default"),
-            ));
+            let value = self.read_mock(id, kind, default, nullable)?;
+            let writable = match (&policy, &auth) {
+                (ApplyPolicy::ReadOnly, _) => Writable::No {
+                    reason: "This setting is informational; it cannot be changed.".into(),
+                },
+                (_, Some(auth)) => Writable::NeedsPermission { auth: auth.clone() },
+                _ => Writable::Yes,
+            };
+            return Ok(ReadResult {
+                writable,
+                value,
+                origin: ValueOrigin::Default,
+                freshness: crate::read::Freshness::now(crate::read::fnv1a_fingerprint(
+                    id.as_bytes(),
+                )),
+                restart_effect: crate::read::RestartEffect::None,
+                details: SourceDetails {
+                    backend_kind: "mock",
+                    target: format!("declared default for {id}"),
+                    origin_note: Some("module-declared default (mock source)".to_string()),
+                    imported: false,
+                    diagnostics: Vec::new(),
+                },
+            });
         }
 
-        Err(LicomanError::new(
-            ErrorKind::Unavailable,
-            format!(
-                "Not readable yet — reading {} backends arrives with real read support \
-                 (Phase 05). The binding is validated and recorded.",
-                backend.kind_name()
-            ),
-            format!("read refused for non-mock binding on {id:?}"),
-        ))
+        // Real backend: bounded I/O through the router. Callers must respect
+        // [`Provider::read_latency`] (Background) — the store schedules
+        // these off the UI thread.
+        let descriptor = {
+            let registry = self.registry.lock().expect("registry lock");
+            registry
+                .descriptors()
+                .iter()
+                .find(|d| d.id == id)
+                .cloned()
+                .ok_or_else(|| self.setting_error(id, "This setting is not registered.".into()))?
+        };
+        self.router.read(&backend, &descriptor)
     }
 
     fn write(&self, id: &str, value: &SettingValue) -> Result<(), LicomanError> {
@@ -214,10 +293,6 @@ impl Provider for ModuleProvider {
             .insert(id.to_string(), value.clone());
         Ok(())
     }
-}
-
-fn manifest_value(value: &super::def::ManifestValue, kind: ValueKind) -> Option<SettingValue> {
-    super::registry::manifest_value_to_setting_value(value, kind)
 }
 
 #[cfg(test)]
@@ -287,16 +362,55 @@ schema = "org.gnome.desktop.interface"
 key = "clock-show-weekday"
 "#;
 
+    /// A dbus client stub for the fixture router (no PowerProfiles service
+    /// in these tests; the dbus path is covered by the backend's own suite).
+    struct AbsentService;
+
+    impl crate::read::dbus::PowerProfilesClient for AbsentService {
+        fn locate(
+            &self,
+        ) -> Result<
+            Option<(&'static str, &'static str, &'static str)>,
+            crate::read::dbus::ClientError,
+        > {
+            Ok(None)
+        }
+        fn property(
+            &self,
+            _endpoint: (&'static str, &'static str, &'static str),
+            _name: &str,
+        ) -> Result<crate::read::dbus::PropertyValue, crate::read::dbus::ClientError> {
+            Err(crate::read::dbus::ClientError::Other("absent".into()))
+        }
+    }
+
     fn provider() -> ModuleProvider {
         let registry = Arc::new(Mutex::new(ModuleRegistry::load([(
             super::super::registry::ModuleSource::Builtin("m"),
             MOCK_MODULE.to_string(),
         )])));
-        let provider = ModuleProvider::new(registry);
+        // Real-backend reads go through a fixture router: the synthetic
+        // schema fixture plus the dconf fixtures — never the host's real
+        // environment (tests must not depend on installed schemas).
+        let fixtures =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+        let router = BackendRouter::new(
+            crate::read::gsettings::GSettingsReadBackend::for_paths(
+                vec![fixtures.join("discovery/schemas")],
+                Some(fixtures.join("gsettings/dconf/user")),
+                vec![fixtures.join("gsettings/dconf/system/site")],
+            ),
+            crate::read::file::FileReadBackend::for_dirs(
+                fixtures.join("file-config"),
+                fixtures.join("file-home"),
+                vec![],
+            ),
+            crate::read::dbus::DBusReadBackend::with_client(Arc::new(AbsentService)),
+        );
+        let provider = ModuleProvider::with_router(registry, router);
         // The Arch/Hyprland fixture carries the synthetic schema facts
         // (org.gnome.desktop.interface), so the gsettings binding passes its
-        // presence check and the read path reaches the truthful
-        // "not readable yet" refusal.
+        // presence check and the read path reaches the real backend.
         provider.set_environment(Some(
             &crate::discovery::demo_fixtures::arch_hyprland_wayland(),
         ));
@@ -317,6 +431,15 @@ key = "clock-show-weekday"
             provider.read("shared.network.toggle").unwrap(),
             SettingValue::Bool(false)
         );
+    }
+
+    #[test]
+    fn mock_reads_carry_the_default_origin() {
+        let provider = provider();
+        let result = provider.read_detailed("shared.network.toggle").unwrap();
+        assert_eq!(result.origin, ValueOrigin::Default);
+        assert_eq!(result.writable, Writable::Yes);
+        assert_eq!(result.details.backend_kind, "mock");
     }
 
     #[test]
@@ -348,16 +471,33 @@ key = "clock-show-weekday"
     }
 
     #[test]
-    fn real_backend_reads_and_writes_fail_closed() {
+    fn real_backend_reads_go_through_the_router_and_writes_fail_closed() {
         let provider = provider();
-        let read_error = provider.read("shared.network.real").unwrap_err();
-        assert_eq!(read_error.kind, ErrorKind::Unavailable);
-        assert!(read_error.user_message.contains("Not readable yet"));
+        // The fixture dconf user db overrides clock-show-weekday to true —
+        // a real read with real origin metadata.
+        let result = provider.read_detailed("shared.network.real").unwrap();
+        assert_eq!(result.details.backend_kind, "gsettings");
+        assert_eq!(result.value, SettingValue::Bool(true));
+        assert_eq!(result.origin, ValueOrigin::User);
+        assert!(matches!(result.writable, Writable::No { .. }));
         let write_error = provider
             .write("shared.network.real", &SettingValue::Bool(false))
             .unwrap_err();
         assert_eq!(write_error.kind, ErrorKind::WriteFailed);
         assert!(write_error.user_message.contains("Nothing was modified"));
+    }
+
+    #[test]
+    fn latency_reflects_the_binding_kind() {
+        let provider = provider();
+        assert_eq!(
+            provider.read_latency("shared.network.toggle"),
+            ReadLatency::Immediate
+        );
+        assert_eq!(
+            provider.read_latency("shared.network.real"),
+            ReadLatency::Background
+        );
     }
 
     #[test]

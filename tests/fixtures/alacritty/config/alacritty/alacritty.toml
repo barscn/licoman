@@ -1,0 +1,10 @@
+# Fixture used by the Phase 05 read matrix tests and the `reads` demo.
+font.size = 11.0
+window.opacity = 0.92
+
+[font.normal]
+family = "JetBrains Mono"
+
+[general]
+import = ["theme.toml"]
+live_config_reload = true

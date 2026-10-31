@@ -1,6 +1,6 @@
 # Licoman Architecture
 
-**Status:** as of Phase 04 (2026-10-31). Decision records live in
+**Status:** as of Phase 05 (2026-10-31). Decision records live in
 [decisions.md](decisions.md); design decisions from Phase 01 live in
 [docs/design/decisions.md](../design/decisions.md) (D1–D13).
 
@@ -23,14 +23,22 @@ crates/licoman-core   domain: typed values, descriptors, lifecycle store,
 
 - `licoman-core` depends on **no GPUI** — in fact on no GUI library at all.
   Its dependencies are `serde`, `toml` (Licoman's own preferences file and
-  the module manifests) and `schemars` (the generated module JSON Schema,
-  Phase 04). This is enforced structurally by the dependency graph, not by
+  the module manifests), `toml_edit` (config-file reads with
+  formatting-preserving parses, Phase 05), `zbus` (D-Bus service reads,
+  Phase 05) and `schemars` (the generated module JSON Schema, Phase 04).
+  This is enforced structurally by the dependency graph, not by
   convention: if a file under `crates/core` needs gpui, the build fails.
 - Since Phase 04 the shipped settings catalog is **declarative**: built-in
   module manifests (`modules/builtin/*.toml`, embedded at build time) are
   validated, indexed and evaluated for applicability in
   `crates/core/src/modules/`; the authoring contract is documented in
   [../module-schema.md](../module-schema.md).
+- Since Phase 05 the real backends **read** effective values with typed
+  provenance (`crates/core/src/read/`): GSettings via the platform's own
+  schema/dconf GVDB databases, TOML config files with the documented
+  Alacritty search paths and import merge, and D-Bus service properties via
+  zbus — all bounded, off the UI thread, and read-only. See
+  [backends.md](backends.md).
 - `licoman-ui` renders the **Quiet Control** design system (tokens in
   `crates/ui/src/theme.rs`) and adapts core state to widgets.
 - `apps/licoman` is deliberately thin: CLI parsing, environment checks,

@@ -107,6 +107,8 @@ pub struct EnvironmentFacts {
     pub gsettings_schemas: BTreeMap<String, BTreeSet<String>>,
     /// Well-known names visible on the session bus.
     pub bus_names: BTreeSet<String>,
+    /// Well-known names visible on the system bus (Phase 05).
+    pub bus_names_system: BTreeSet<String>,
 }
 
 impl EnvironmentFacts {
@@ -128,6 +130,7 @@ impl EnvironmentFacts {
                 .collect(),
             gsettings_schemas: snapshot.gsettings_schemas.clone(),
             bus_names: snapshot.bus_names.clone(),
+            bus_names_system: snapshot.bus_names_system.clone(),
         }
     }
 }
@@ -318,13 +321,15 @@ pub fn setting_status(
             Some(_) => Ok(()),
         },
         BackendBinding::DBus { service, .. } => {
-            if facts.bus_names.contains(service) {
+            // Services are probed passively on both buses; a service is
+            // available when its name is visible on the bus it runs on.
+            if facts.bus_names.contains(service) || facts.bus_names_system.contains(service) {
                 Ok(())
             } else {
                 Err(format!(
-                    "The D-Bus service {service:?} was not found on the session bus; \
-                     session-bus services are probed passively and system-bus services are not \
-                     probed yet."
+                    "The D-Bus service {service:?} was not found on the session or system \
+                     bus. Services are probed passively; Licoman never starts one to make \
+                     a setting look available."
                 ))
             }
         }
@@ -467,10 +472,16 @@ mod tests {
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
-            backend_ids: ["gsettings-schemas", "dbus-session", "config:alacritty"]
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
+            backend_ids: [
+                "gsettings-schemas",
+                "dbus-session",
+                "dbus-system",
+                "config:alacritty",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+            bus_names_system: Default::default(),
             gsettings_schemas: [(
                 "org.gnome.desktop.interface".to_string(),
                 ["clock-show-weekday".to_string()].into_iter().collect(),
@@ -519,6 +530,7 @@ kind = "mock"
             problems: vec![],
             gsettings_schemas: f.gsettings_schemas.clone(),
             bus_names: f.bus_names.clone(),
+            bus_names_system: f.bus_names_system.clone(),
         }
     }
 
@@ -689,7 +701,7 @@ kind = "mock"
         assert!(
             setting_status_for(binding, &f)
                 .unwrap_err()
-                .contains("not found on the session bus")
+                .contains("not found on the session or system bus")
         );
     }
 

@@ -2,7 +2,7 @@ schema_version = 1
 id = "app.alacritty"
 scope = "application"
 title = "Alacritty"
-description = "Terminal emulator. Values are mock; the TOML config binding is recorded for Phase 05."
+description = "Terminal emulator. Values are read from your Alacritty configuration (TOML), including general.import merges; settings absent from the config show no value because Alacritty's built-in defaults are not validated here."
 category = "Terminal"
 order = 10
 docs_url = "https://alacritty.org/config-alacritty.html"
@@ -28,7 +28,11 @@ max_length = 100
 group = "Appearance"
 order = 1
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "font.normal.family"
+resolution = "alacritty"
 
 [[settings]]
 id = "font_size"
@@ -45,7 +49,11 @@ unit = "pt"
 group = "Appearance"
 order = 2
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "font.size"
+resolution = "alacritty"
 
 [[settings]]
 id = "padding_x"
@@ -60,7 +68,11 @@ unit = "px"
 group = "Appearance"
 order = 3
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "window.padding.x"
+resolution = "alacritty"
 
 [[settings]]
 id = "padding_y"
@@ -75,7 +87,11 @@ unit = "px"
 group = "Appearance"
 order = 4
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "window.padding.y"
+resolution = "alacritty"
 
 [[settings]]
 id = "opacity"
@@ -91,7 +107,11 @@ step = 0.05
 group = "Appearance"
 order = 5
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "window.opacity"
+resolution = "alacritty"
 
 [[settings]]
 id = "colors_primary_foreground"
@@ -104,7 +124,11 @@ max_length = 20
 group = "Appearance"
 order = 6
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "colors.primary.foreground"
+resolution = "alacritty"
 
 [[settings]]
 id = "startup_mode"
@@ -122,7 +146,11 @@ value = "Maximized"
 [[settings.options]]
 value = "Fullscreen"
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "window.startup_mode"
+resolution = "alacritty"
 
 [[settings]]
 id = "dynamic_title"
@@ -134,7 +162,11 @@ default = true
 group = "Window"
 order = 8
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "window.dynamic_title"
+resolution = "alacritty"
 
 [[settings]]
 id = "columns"
@@ -148,7 +180,11 @@ max = 500
 group = "Window"
 order = 9
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "window.dimensions.columns"
+resolution = "alacritty"
 
 [[settings]]
 id = "lines"
@@ -162,7 +198,11 @@ max = 200
 group = "Window"
 order = 10
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "window.dimensions.lines"
+resolution = "alacritty"
 
 [[settings]]
 id = "cursor_style"
@@ -180,7 +220,11 @@ value = "Underline"
 [[settings.options]]
 value = "Beam"
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "cursor.style.shape"
+resolution = "alacritty"
 
 [[settings]]
 id = "cursor_unfocused_hollow"
@@ -192,7 +236,11 @@ default = true
 group = "Cursor"
 order = 12
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "cursor.style.unfocused_hollow"
+resolution = "alacritty"
 
 [[settings]]
 id = "cursor_blink"
@@ -219,7 +267,11 @@ step = 1000
 group = "Advanced"
 order = 14
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "scrolling.history"
+resolution = "alacritty"
 
 [[settings]]
 id = "live_config_reload"
@@ -231,7 +283,11 @@ default = true
 group = "Advanced"
 order = 15
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "general.live_config_reload"
+resolution = "alacritty"
 
 [[settings]]
 id = "bell_animation"
@@ -251,7 +307,11 @@ value = "EaseOutQuad"
 [[settings.options]]
 value = "None"
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "bell.animation"
+resolution = "alacritty"
 
 [[settings]]
 id = "mouse_hide_typing"
@@ -263,7 +323,11 @@ default = true
 group = "Advanced"
 order = 17
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "mouse.hide_when_typing"
+resolution = "alacritty"
 
 [[settings]]
 id = "shell"

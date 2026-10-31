@@ -2,7 +2,7 @@ schema_version = 1
 id = "shared.appearance"
 scope = "shared"
 title = "Appearance"
-description = "Sample interface appearance settings served by the mock value source."
+description = "Interface appearance. The interface rows bound to GSettings read your desktop's real values (dconf + schema defaults); the rest is served by the mock value source."
 category = "Appearance"
 order = 10
 
@@ -10,6 +10,62 @@ order = 10
 maintainer = "Licoman maintainers"
 tested = ["Licoman 0.1 mock catalog"]
 level = "supported"
+
+[[settings]]
+id = "gsettings_color_scheme"
+title = "Color scheme (desktop)"
+description = "The desktop-wide light/dark preference, read from org.gnome.desktop.interface/color-scheme."
+keywords = ["dark", "light", "theme", "gsettings"]
+type = "enum"
+control = "dropdown"
+default = "default"
+group = "Interface (read-only)"
+order = 0.5
+[[settings.options]]
+value = "default"
+label = "Default"
+[[settings.options]]
+value = "prefer-dark"
+label = "Prefer dark"
+[[settings.options]]
+value = "prefer-light"
+label = "Prefer light"
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.interface"
+key = "color-scheme"
+
+[[settings]]
+id = "gsettings_animations"
+title = "Enable animations (desktop)"
+description = "The desktop animation preference, read from org.gnome.desktop.interface/enable-animations."
+keywords = ["animations", "effects", "gsettings"]
+type = "boolean"
+control = "switch"
+default = true
+group = "Interface (read-only)"
+order = 0.6
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.interface"
+key = "enable-animations"
+
+[[settings]]
+id = "gsettings_cursor_size"
+title = "Cursor size (desktop)"
+description = "The desktop cursor size, read from org.gnome.desktop.interface/cursor-size."
+keywords = ["cursor", "pointer", "gsettings"]
+type = "integer"
+control = "number"
+default = 24
+min = 6
+max = 96
+group = "Interface (read-only)"
+order = 0.7
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.interface"
+key = "cursor-size"
 
 [[settings]]
 id = "text_scaling"

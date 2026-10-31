@@ -1,6 +1,6 @@
 # Licoman Module Schema — Authoring Guide and Reference
 
-**Status:** as of Phase 04 (`schema_version = 1`). The canonical types live in
+**Status:** as of Phase 05 (`schema_version = 1`). The canonical types live in
 `crates/core/src/modules/def.rs`; the published JSON Schema is generated from
 them and can be printed with:
 
@@ -20,10 +20,10 @@ code, spawn processes, write host files or elevate privileges:
 - Every backend string is validated against an identifier/relative-path
   grammar; shell metacharacters (`; | & $ \` > < \` etc.) and path escapes
   (`..`, absolute paths, `~`) fail validation.
-- This build serves **mock values only** (`mock` backends). Real backends are
-  declared, validated and recorded, but reads fail with a truthful
-  "not readable yet" state (Phase 05) and writes are refused unconditionally
-  (the safe write engine is Phase 06).
+- Mock backends serve declared defaults; the real backends (`gsettings`,
+  `file`, `dbus`) **read effective values with full provenance** through the
+  read-only backends (Phase 05 — see `docs/architecture/backends.md`) and
+  refuse writes unconditionally (the safe write engine is Phase 06).
 
 ## Minimal example
 
@@ -101,7 +101,7 @@ are data, not one opaque "incompatible".
 | `title` | string | yes | Row label (1–200). |
 | `description` | string | no | Row explanation (≤1000). |
 | `keywords` | list | no | Up to 16 extra search terms (≤64 chars each). The module title and app names are indexed automatically. |
-| `type` | string | yes* | `boolean`, `enum`, `integer`, `float`, `string` or `path`. *Required for every control except `action`. |
+| `type` | string | yes* | `boolean`, `enum`, `integer`, `float`, `string`, `path` or `list` (string list; read-only display). *Required for every control except `action`. |
 | `control` | string | yes | `switch`, `checkbox`, `dropdown`, `number`, `slider`, `text`, `path_input`, `action`, `read_only`. Coherence with `type` is validated. |
 | `policy` | string | no | `immediate`, `staged` (default) or `read_only`. `read_only` requires the `read_only` control so the UI never renders a control that cannot write. |
 | `risk` | string | no | `low` (default), `medium`, `high`. High-risk rows carry a warning status line. |
@@ -142,11 +142,19 @@ kind = "file"
 path = "alacritty/alacritty.toml"                # relative to $XDG_CONFIG_HOME
 format = "toml"                                  # toml | json | keyfile
 key = "font.size"                                # optional dotted key
+resolution = "alacritty"                         # optional: alacritty | xdg_file
 ```
 
 Applicability of a setting is checked against the **actual environment**:
-a missing GSettings schema or key, or an absent session-bus service, makes
-the setting unavailable — no value is faked.
+a missing GSettings schema or key, or an absent bus service (session or
+system), makes the setting unavailable — no value is faked.
+
+The `resolution` field selects how a `file` binding locates and merges its
+configuration (Phase 05; default `xdg_file` = one file under
+`$XDG_CONFIG_HOME` read as-is). `alacritty` implements Alacritty's
+documented search-path list plus the `general.import` merge
+("the importing file being loaded last" — the last loader wins); see
+`docs/architecture/backends.md` for the exact semantics and bounds.
 
 ## Registry lifecycle
 
@@ -156,7 +164,8 @@ Load built-in manifests (embedded at compile time)
    -> Query EnvironmentSnapshot and provider capabilities
    -> Compute applicability and compatibility reasons (per dimension)
    -> Index scopes, categories, groups, apps and search terms
-   -> Bind typed value state (mock reads only in this phase)
+   -> Bind typed value state (mock defaults immediately; real backends via
+      the background read pass with origin/freshness provenance)
    -> Provide normalized data to the GPUI adapter
 ```
 

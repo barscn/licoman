@@ -2,7 +2,7 @@ schema_version = 1
 id = "shared.power"
 scope = "shared"
 title = "Power"
-description = "Sample power management settings served by the mock value source."
+description = "Power management. The profile comes from the power-profiles-daemon over the system bus when it is running; the rest is served by the mock value source."
 category = "Power"
 order = 40
 
@@ -17,17 +17,24 @@ description = "Balanced, performance or power-saver. The real daemon runs on the
 keywords = ["performance", "battery"]
 type = "enum"
 control = "dropdown"
-default = "Balanced"
+default = "balanced"
 group = "Profiles"
 order = 1
 [[settings.options]]
-value = "Balanced"
+value = "balanced"
+label = "Balanced"
 [[settings.options]]
-value = "Performance"
+value = "performance"
+label = "Performance"
 [[settings.options]]
-value = "Power Saver"
+value = "power-saver"
+label = "Power Saver"
 [settings.backend]
-kind = "mock"
+kind = "dbus"
+service = "org.freedesktop.UPower.PowerProfiles"
+path = "/org/freedesktop/UPower/PowerProfiles"
+interface = "org.freedesktop.UPower.PowerProfiles"
+property = "ActiveProfile"
 
 [[settings]]
 id = "screen_blank"
@@ -205,13 +212,30 @@ order = 13
 kind = "mock"
 
 [[settings]]
+id = "available_profiles"
+title = "Available profiles"
+description = "The profiles the power-profiles service currently offers. Runtime state; read-only."
+keywords = ["balanced", "performance", "power saver"]
+type = "list"
+control = "read_only"
+policy = "read_only"
+group = "Profiles"
+order = 2
+[settings.backend]
+kind = "dbus"
+service = "org.freedesktop.UPower.PowerProfiles"
+path = "/org/freedesktop/UPower/PowerProfiles"
+interface = "org.freedesktop.UPower.PowerProfiles"
+property = "Profiles"
+
+[[settings]]
 id = "daemon_status"
 title = "Power daemon"
 description = "Which power management daemon is active."
 type = "string"
 control = "read_only"
 policy = "read_only"
-default = "System-bus power services are not probed yet"
+default = "Power-profiles service state is read over D-Bus when it is running"
 group = "Profiles"
 order = 14
 [settings.backend]
