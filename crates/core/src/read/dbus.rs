@@ -201,18 +201,29 @@ impl PowerProfilesClient for ZBusPowerProfilesClient {
         endpoint: (&'static str, &'static str, &'static str),
         name: &str,
     ) -> Result<PropertyValue, ClientError> {
+        self.property(endpoint, name)
+    }
+}
+
+impl ZBusPowerProfilesClient {
+    /// Read one property through `org.freedesktop.DBus.Properties.Get` on
+    /// the endpoint's destination and object path. The names are cloned:
+    /// the bounded worker thread outlives the borrow.
+    pub(crate) fn property(
+        &self,
+        endpoint: (&str, &str, &str),
+        name: &str,
+    ) -> Result<PropertyValue, ClientError> {
         use zbus::blocking::Proxy;
-        use zbus::zvariant::Value;
-        // Properties live on org.freedesktop.DBus.Properties, addressed to
-        // the endpoint's destination and object path. The property name is
-        // cloned: the bounded worker thread outlives the borrow.
         let property_name = name.to_string();
+        let destination = endpoint.0.to_string();
+        let path = endpoint.1.to_string();
         let owned: OwnedValue = call_bounded("get-property", move || {
             let connection = zbus::blocking::Connection::system()?;
             let proxy = Proxy::new(
                 &connection,
-                endpoint.0,
-                endpoint.1,
+                destination,
+                path,
                 "org.freedesktop.DBus.Properties",
             )?;
             proxy.call(
@@ -220,22 +231,45 @@ impl PowerProfilesClient for ZBusPowerProfilesClient {
                 &("org.freedesktop.UPower.PowerProfiles", property_name),
             )
         })?;
-        match Value::from(owned) {
-            Value::Str(s) => Ok(PropertyValue::Str(s.to_string())),
-            Value::Array(items) => {
-                let mut list = Vec::new();
-                for item in items.iter() {
-                    match item.try_into() {
-                        Ok(Value::Str(s)) => list.push(s.to_string()),
-                        _ => return Err(ClientError::Other("Profiles element type".into())),
-                    }
-                }
-                Ok(PropertyValue::StrList(list))
-            }
-            other => Err(ClientError::Other(format!(
-                "unexpected property type: {other:?}"
-            ))),
-        }
+        property_owned_to_value(owned)
+    }
+
+    /// Write one property through `org.freedesktop.DBus.Properties.Set` on
+    /// the probed endpoint (Phase 07, Integration C; decision D52). Typed
+    /// property set only — the endpoint comes from the same passive probing
+    /// as reads, and the value shapes are the two PowerProfiles uses.
+    pub(crate) fn set_property(
+        &self,
+        endpoint: (&str, &str, &str),
+        name: &str,
+        value: &PropertyValue,
+    ) -> Result<(), ClientError> {
+        use zbus::blocking::Proxy;
+        use zbus::zvariant::Value;
+        let property_name = name.to_string();
+        let interface = endpoint.2.to_string();
+        let destination = endpoint.0.to_string();
+        let path = endpoint.1.to_string();
+        let zvalue: Value<'_> = match value {
+            PropertyValue::Str(text) => Value::Str(text.clone().into()),
+            PropertyValue::StrList(items) => Value::Array(
+                items
+                    .iter()
+                    .map(|item| Value::Str(item.clone().into()))
+                    .collect::<Vec<_>>()
+                    .into(),
+            ),
+        };
+        call_bounded("set-property", move || {
+            let connection = zbus::blocking::Connection::system()?;
+            let proxy = Proxy::new(
+                &connection,
+                destination,
+                path,
+                "org.freedesktop.DBus.Properties",
+            )?;
+            proxy.call::<_, _, ()>("Set", &(interface, property_name, zvalue))
+        })
     }
 }
 
@@ -254,6 +288,57 @@ fn map_call_error(error: zbus::Error) -> ClientError {
         return ClientError::Other("service disappeared".into());
     }
     ClientError::Other(text)
+}
+
+/// Decode an owned D-Bus property value into the shapes PowerProfiles uses.
+/// `Profiles` may be a plain string array (legacy `net.hadess` daemon) or an
+/// array of `{sv}` dicts with a `Profile` entry (current daemon, signature
+/// `aa{sv}` per the interface docs) — both decode to the profile name list;
+/// anything else is an error, never a guess.
+fn property_owned_to_value(owned: OwnedValue) -> Result<PropertyValue, ClientError> {
+    use std::collections::HashMap;
+    use zbus::zvariant::Value;
+    let value = Value::from(owned);
+    match value {
+        Value::Str(s) => Ok(PropertyValue::Str(s.to_string())),
+        Value::Array(items) => {
+            let mut list = Vec::new();
+            for item in items.iter() {
+                match item.clone() {
+                    Value::Str(s) => list.push(s.to_string()),
+                    // Current daemon: aa{sv} — each dict carries "Profile".
+                    Value::Dict(dict) => {
+                        let map: HashMap<String, Value> =
+                            HashMap::try_from(dict).map_err(|error| {
+                                ClientError::Other(format!("Profiles dict: {error}"))
+                            })?;
+                        match map.get("Profile") {
+                            Some(Value::Str(s)) => list.push(s.to_string()),
+                            Some(other) => {
+                                return Err(ClientError::Other(format!(
+                                    "Profiles dict Profile type: {other:?}"
+                                )));
+                            }
+                            None => {
+                                return Err(ClientError::Other(
+                                    "Profiles dict has no Profile".into(),
+                                ));
+                            }
+                        }
+                    }
+                    other => {
+                        return Err(ClientError::Other(format!(
+                            "Profiles element type: {other:?}"
+                        )));
+                    }
+                }
+            }
+            Ok(PropertyValue::StrList(list))
+        }
+        other => Err(ClientError::Other(format!(
+            "unexpected property type: {other:?}"
+        ))),
+    }
 }
 
 /// A client that deterministically reports the service as absent. Used by
@@ -342,11 +427,29 @@ impl DBusReadBackend {
                 format!("{name}: ActiveProfile is not a string"),
             ));
         };
+        // Best-effort context facts (07 Integration C: inhibited/degraded
+        // and held states where the service provides them). Failures here
+        // never fail the profile read.
+        let mut diagnostics = vec![format!("endpoint: {name} at {path}")];
+        if let Ok(PropertyValue::Str(degraded)) = self.call_bounded("degraded", move |client| {
+            client.property(endpoint_triple, "PerformanceDegraded")
+        }) {
+            if degraded.is_empty() {
+                diagnostics.push("performance not degraded".to_string());
+            } else {
+                diagnostics.push(format!("performance degraded: {degraded}"));
+            }
+        }
+        if let Ok(PropertyValue::StrList(holds)) = self.call_bounded("holds", move |client| {
+            client.property(endpoint_triple, "ActiveProfileHolds")
+        }) {
+            diagnostics.push(format!("profile holds: {}", holds.len()));
+        }
         Ok(ReadResult {
             value: SettingValue::Choice(profile.clone()),
             origin: ValueOrigin::Runtime,
             writable: Writable::No {
-                reason: "Licoman can read power profiles but cannot switch them yet.".to_string(),
+                reason: "Power-profile switching is not enabled in this environment.".to_string(),
             },
             freshness: Freshness::now(fnv1a_fingerprint(profile.as_bytes())),
             restart_effect: RestartEffect::None,
@@ -355,7 +458,59 @@ impl DBusReadBackend {
                 target: format!("{name} {path} {interface}.ActiveProfile"),
                 origin_note: Some(format!("live property from {name}")),
                 imported: false,
-                diagnostics: vec![format!("endpoint: {name} at {path}")],
+                diagnostics,
+            },
+        })
+    }
+
+    /// `PerformanceDegraded` (read-only, `s`): empty when the performance
+    /// profile runs normally; otherwise the service's reason string
+    /// (`lap-detected`, `high-operating-temperature`, … — the interface docs
+    /// advise front-ends to show a generic message for unknown values).
+    fn read_degraded(&self, _descriptor: &SettingDescriptor) -> Result<ReadResult, LicomanError> {
+        let endpoint = self
+            .call_bounded("locate", |client| client.locate())
+            .map_err(|e| e.to_licoman("locate"))?;
+        let Some(endpoint_triple @ (name, path, interface)) = endpoint else {
+            return Err(LicomanError::new(
+                ErrorKind::Unavailable,
+                "The power-profiles service is not running on this system, so the \
+                 performance state cannot be read. Licoman does not start system \
+                 services.",
+                "no PowerProfiles endpoint on the system bus",
+            ));
+        };
+        let value = self
+            .call_bounded("degraded", move |client| {
+                client.property(endpoint_triple, "PerformanceDegraded")
+            })
+            .map_err(|e| e.to_licoman("PerformanceDegraded"))?;
+        let PropertyValue::Str(degraded) = value else {
+            return Err(LicomanError::new(
+                ErrorKind::Unavailable,
+                "The service returned an unexpected type for the performance state.",
+                format!("{name}: PerformanceDegraded is not a string"),
+            ));
+        };
+        let display = if degraded.is_empty() {
+            "not degraded".to_string()
+        } else {
+            degraded.clone()
+        };
+        Ok(ReadResult {
+            value: SettingValue::Text(display),
+            origin: ValueOrigin::Runtime,
+            writable: Writable::No {
+                reason: "The service reports this state; it cannot be set.".to_string(),
+            },
+            freshness: Freshness::now(fnv1a_fingerprint(degraded.as_bytes())),
+            restart_effect: RestartEffect::None,
+            details: SourceDetails {
+                backend_kind: "dbus",
+                target: format!("{name} {path} {interface}.PerformanceDegraded"),
+                origin_note: Some(format!("live property from {name}")),
+                imported: false,
+                diagnostics: vec![format!("raw: {degraded:?}")],
             },
         })
     }
@@ -479,6 +634,7 @@ impl SettingsReadBackend for DBusReadBackend {
         match property.as_deref() {
             Some("ActiveProfile") => self.read_profile(descriptor),
             Some("Profiles") => self.read_profiles(descriptor),
+            Some("PerformanceDegraded") => self.read_degraded(descriptor),
             Some(other) => Err(LicomanError::new(
                 ErrorKind::Unavailable,
                 "This service property is not read in this phase.",

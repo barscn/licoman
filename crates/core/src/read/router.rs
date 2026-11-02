@@ -83,6 +83,18 @@ impl BackendRouter {
         }
     }
 
+    /// Whether this binding may be **written** here (Phase 07, D49/D50):
+    /// family-level writability beyond mere presence — the file backend's
+    /// Alacritty version gate, presence for the others (the engine's gates
+    /// re-check everything at write time; this only drives the UI).
+    pub fn write_support(&self, binding: &BackendBinding) -> SupportState {
+        match binding {
+            BackendBinding::Mock => SupportState::Available,
+            BackendBinding::File { .. } => self.inner.file.write_support(binding),
+            BackendBinding::GSettings { .. } | BackendBinding::DBus { .. } => self.probe(binding),
+        }
+    }
+
     /// Read one setting through the owning backend family.
     pub fn read(
         &self,

@@ -4,18 +4,20 @@
 
 Built with **Rust + GPUI + GPUI Kit**. No Electron, no browser UI, no embedded web view.
 
-> **Status: Phase 06 (safe write engine) implemented — fixture-only.**
-> Typed change requests, core-derived apply policies (read-only / immediate
-> / staged / confirmation / privileged), a deny-by-default privilege broker,
-> conflict-checked formatting-preserving file edits with bounded private
-> backups and atomic staging, a fake D-Bus service path with honest
-> persistence, and undo/reset with disclosure. **Writes exist only in the
-> fixture demos** (a throwaway temp copy); a live run still writes nothing
-> but Licoman's own preferences file. See
-> [docs/handoffs/PHASE_06_REPORT.md](docs/handoffs/PHASE_06_REPORT.md),
-> [docs/architecture/write-engine.md](docs/architecture/write-engine.md),
-> [docs/security/threat-model.md](docs/security/threat-model.md) and
-> [docs/architecture/decisions.md](docs/architecture/decisions.md) (D43–D48).
+> **Status: Phase 07 (first live settings integrations) implemented.**
+> The three vertical slices are real: **Alacritty** (version-validated TOML
+> writes with xattr/ACL preserve-or-refuse), **GNOME GSettings** (native
+> libgio writes behind a fail-closed desktop gate, real reset semantics,
+> native change notifications), and **power-profiles over D-Bus** (typed
+> property writes with honest persistence). A live user-approved GSettings
+> write round trip was verified against a disposable dconf database (real
+> native stack, real database untouched). Every write still requires an
+> explicit user Apply behind the core-derived policy gates — startup,
+> discovery, tests and CI never write. See
+> [docs/handoffs/PHASE_07_REPORT.md](docs/handoffs/PHASE_07_REPORT.md),
+> [docs/architecture/integrations.md](docs/architecture/integrations.md),
+> [docs/live-testing/PHASE_07_LIVE_CHECKLIST.md](docs/live-testing/PHASE_07_LIVE_CHECKLIST.md)
+> and [docs/architecture/decisions.md](docs/architecture/decisions.md) (D49–D54).
 
 ## Principles (non-negotiable)
 

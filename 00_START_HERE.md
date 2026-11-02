@@ -4,22 +4,20 @@
 for Linux configuration, built with **Rust + GPUI + GPUI Kit**. No Electron,
 no browser UI, no embedded web view.
 
-> **Status: Phase 06 (safe write engine) implemented — fixture-only.**
-> The catalog is declarative (Phase 04) and the real backends **read**
-> (GSettings/dconf, TOML+imports, D-Bus) with typed origin, freshness and
-> source details (Phase 05). Phase 06 adds the safe write engine: typed
-> change requests, core-derived apply policies (read-only / immediate /
-> staged / confirmation / privileged), a deny-by-default privilege broker,
-> conflict-checked formatting-preserving file edits with bounded private
-> backups and atomic staging, a fake D-Bus service path with honest
-> persistence, undo/reset with disclosure, and the full adversarial test
-> matrix. **Writes exist only for the fixture demos** (a throwaway temp
-> copy of the test fixtures) — a live run still writes nothing but
-> Licoman's own preferences file. See
-> [docs/handoffs/PHASE_06_REPORT.md](docs/handoffs/PHASE_06_REPORT.md),
-> [docs/architecture/write-engine.md](docs/architecture/write-engine.md),
-> [docs/security/threat-model.md](docs/security/threat-model.md) and
-> [docs/architecture/decisions.md](docs/architecture/decisions.md) (D43–D48).
+> **Status: Phase 07 (first live settings integrations) implemented.**
+> The Phase 06 safe write engine now has live backends: Alacritty TOML
+> writes (version-validated, xattr/ACL preserve-or-refuse), GSettings
+> writes through the **native** API behind a fail-closed GNOME desktop
+> gate, and PowerProfiles property writes over the system bus — all gated
+> by the same core-derived policies and only ever triggered by an explicit
+> user Apply. A user-approved live GSettings round trip was verified on a
+> disposable dconf root (real stack, real database untouched); an optional
+> read-only Hyprland compositor-diagnostics module reads the documented
+> IPC. See [docs/handoffs/PHASE_07_REPORT.md](docs/handoffs/PHASE_07_REPORT.md),
+> [docs/architecture/integrations.md](docs/architecture/integrations.md),
+> [docs/live-testing/PHASE_07_LIVE_CHECKLIST.md](docs/live-testing/PHASE_07_LIVE_CHECKLIST.md),
+> [docs/architecture/write-engine.md](docs/architecture/write-engine.md) and
+> [docs/architecture/decisions.md](docs/architecture/decisions.md) (D49–D54).
 
 ## Developer commands
 

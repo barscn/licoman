@@ -527,3 +527,107 @@ values or contents (asserted by a planted-secret test).
 **Why:** 06 §2.7 (bounded, private, target-only backups), §5 (undo only
 when actually possible; reset must disclose), §6 (bounded redacted
 history).
+
+## D49 — Live writes are enabled structurally, gated identically (Phase 07)
+
+**Decision:** live module providers now carry a real `WriteEngine` (file
+backend over the live approved roots with private backups under
+`$XDG_DATA_HOME/licoman/backups`, service backend over the real zbus
+client, GSettings backend over the native API). The Phase 06 "no engine →
+refuse" hard boundary is replaced by the same gates everywhere: a write
+requires (1) an engine attached at construction, (2) the core-derived
+policy, (3) the engine's independent value/coherence gate, and (4) an
+explicit user Apply/Confirm — application startup, discovery, reads and
+tests never write. `cargo test`/CI construct engines only over injected
+fixture roots and fake clients, exactly as in Phase 06.
+
+**Why:** 07_FIRST_REAL_INTEGRATIONS.md makes the first live writes the
+whole point of the phase while demanding they never run un-invoked. One
+shared engine with identical gates is easier to audit than a
+fixture-only/live split that could drift.
+
+## D50 — Alacritty exposure is version-validated, fail-closed
+
+**Decision:** the file backend owns a per-option table for
+`resolution = "alacritty"`: TOML-config options require Alacritty ≥ 0.13.0
+(upstream changelog: TOML became the configuration in 0.13.0). The version
+is detected once per process with a bounded, direct `alacritty --version`
+exec (no shell, no arguments that change state) and parsed strictly. An
+undetectable or failed detection turns **writes** off (read-only rows:
+"version could not be verified") — Licoman never writes a config whose
+schema it could not verify. A legacy YAML-only setup (no TOML file, any
+`alacritty.yml` on the documented search paths) is an honest unavailable
+state (YAML era ≤ 0.13 is not edited). `shell`/`working_directory` stay
+mock-bound with the recorded reason: the key moved to `terminal.shell` in
+0.14, so a single manifest binding cannot be safe across versions.
+
+**Why:** 07 Integration A: "Validate real option name/type/default against
+the detected version before exposing it" and "unsupported versions don't
+show invented controls". Fail-closed on unknown versions is the only rule
+compatible with the safety contract.
+
+## D51 — GSettings writes use the native API behind a desktop gate
+
+**Decision:** GSettings writes go through the native GSettings API (the
+`gio` crate over libgio): typed `set_value`/`reset`/readback `value`,
+coerced to the **schema's own variant type** (i32/u32/double/bool/string)
+before any call, and `reset` uses the platform's actual reset semantics
+(`g_settings_reset`). There is no shell tool, no `sh -c`, no direct dconf
+database editing. A desktop gate — fed from discovery
+(`DesktopIdentity::Gnome` opens it; any other or unknown desktop keeps it
+closed) — refuses writes when the session is not GNOME, even though the
+schema may be installed; module applicability already hides the module on
+non-GNOME desktops, the engine gate is defense in depth and fails closed
+on unknown. Row reads keep the self-contained GVDB parser (fixture tests
+stay desktop-independent); write verification always reads through the
+same native transport it wrote with.
+
+**Why:** 07 Integration B: "use the native GSettings API where practical",
+"Reset must use GSettings' actual reset semantics", and "a GSettings
+schema on a non-GNOME desktop does not automatically mean the UI action
+should be presented as a functioning desktop control".
+
+## D52 — PowerProfiles writes are typed Properties.Set with honest runtime semantics
+
+**Decision:** the real write client sets `ActiveProfile` through
+`org.freedesktop.DBus.Properties.Set` on the probed endpoint (same passive
+name probing as reads, both current and legacy names, bounded by the same
+worker-thread timeout), then verifies by reading the property back. The
+persistence label is `runtime_only` — power-profiles-daemon keeps no
+across-reboot guarantee for the active profile, and the UI says so.
+`PerformanceDegraded` is surfaced when the service reports it. Absent
+service, denial and timeouts remain distinct honest states; nothing is
+started, installed or activated to make a demo look populated.
+
+**Why:** 07 Integration C: "Apply through the typed property/interface,
+verify actual active profile" and "No promise of persistence across reboot
+unless the service guarantees it".
+
+## D53 — ACLs/xattrs are preserved or the write is refused (Phase 06 gate closed)
+
+**Decision:** before a file write stages anything, the target's extended
+attributes are read (the `xattr` crate — POSIX ACLs are xattrs, so this
+covers ACLs) and re-applied to the staged temp file. Any failure to read
+or restore an attribute refuses the write **before the rename** with the
+original file untouched and a truthful error. Phase 06's documented
+limitation (rename-replacement silently dropping ACLs/xattrs) is closed
+for live writes.
+
+**Why:** the Phase 06 report and threat model gate Phase 07 on
+"implement preserve-or-refuse before any live write"; silent attribute
+loss on a real user file is data loss.
+
+## D54 — Controlled live verification runs real backends on disposable roots
+
+**Decision:** the phase's live tests prefer disposable targets: a
+temporary `XDG_CONFIG_HOME` (fresh dconf database + configuration tree,
+deleted afterwards) exercises the real native stack end to end without
+touching the user's settings. Where a real target is deliberately chosen
+(for example a minimal Alacritty config created with explicit user
+intent), the checklist records a private backup plus a pre-change
+fingerprint first, restores afterwards where the plan says so, and the
+report lists every exact operation with its outcome. Approval is per
+operation list, never implied by running the app or the phase.
+
+**Why:** 07 "Controlled live verification protocol" step 3: "Prefer a
+disposable test account, VM, or temporary application configuration root."

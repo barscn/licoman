@@ -50,17 +50,42 @@ pub struct ModuleProvider {
     registry: Arc<Mutex<ModuleRegistry>>,
     written: Arc<Mutex<HashMap<String, SettingValue>>>,
     router: BackendRouter,
-    /// Present only in the Phase 06 fixture-write mode: the engine writes
-    /// file/service targets under injected fixture roots with a
-    /// deny-by-default privilege broker. `None` (live providers) means
-    /// every non-mock write is refused, unchanged from Phase 05.
+    /// The write engine (Phase 06 fixtures / Phase 07 live, D49). `None`
+    /// means every non-mock write is refused.
     engine: Option<std::sync::Arc<crate::write::WriteEngine>>,
+    /// Shared handle to the engine's GSettings desktop gate, when a
+    /// GSettings backend is attached; refreshed from discovery snapshots.
+    gsettings_gate: Option<crate::write::GSettingsDesktopGate>,
 }
 
 impl ModuleProvider {
     /// Wrap a registry with a live backend router.
     pub fn new(registry: Arc<Mutex<ModuleRegistry>>) -> Self {
         Self::with_router(registry, BackendRouter::live())
+    }
+
+    /// Phase 07 live constructor (D49): the live router **plus** a real
+    /// write engine — file writes over the live approved roots with private
+    /// backups under the Licoman data dir, service writes through the real
+    /// zbus client, GSettings writes through the native API behind the
+    /// fail-closed desktop gate. Nothing is written by construction: every
+    /// write still requires the user's explicit Apply/Confirm flow, and
+    /// tests never call this.
+    pub fn live(registry: Arc<Mutex<ModuleRegistry>>) -> Self {
+        let router = BackendRouter::live();
+        let file_write = crate::write::FileWriteBackend::new(
+            crate::read::file::FileReadBackend::from_env(),
+            crate::prefs::data_dir().join("backups"),
+        );
+        let service_write = crate::write::ServiceWriteBackend::new(Arc::new(
+            crate::read::dbus::ZBusPowerProfilesClient::default(),
+        ));
+        let gsettings = crate::write::GSettingsWriteBackend::native(
+            crate::write::GSettingsDesktopGate::closed(),
+        );
+        let engine = crate::write::WriteEngine::new(file_write, service_write)
+            .with_gsettings(std::sync::Arc::new(gsettings));
+        Self::with_write_engine(registry, router, engine)
     }
 
     /// Wrap a registry with an explicit backend router (fixtures, demos).
@@ -70,6 +95,30 @@ impl ModuleProvider {
             written: Arc::new(Mutex::new(HashMap::new())),
             router,
             engine: None,
+            gsettings_gate: None,
+        }
+    }
+
+    /// Attach a write engine and keep the natural (editable) controls
+    /// (D49). Shared by the fixture construction (Phase 06 demos/tests,
+    /// injected roots) and the live constructor (Phase 07); the engine's
+    /// gates do the enforcing either way.
+    pub fn with_write_engine(
+        registry: Arc<Mutex<ModuleRegistry>>,
+        router: BackendRouter,
+        engine: crate::write::WriteEngine,
+    ) -> Self {
+        {
+            let mut locked = registry.lock().expect("registry lock");
+            locked.enable_write_controls();
+        }
+        let gsettings_gate = engine.gsettings().map(|backend| backend.gate().clone());
+        Self {
+            registry,
+            written: Arc::new(Mutex::new(HashMap::new())),
+            router,
+            engine: Some(std::sync::Arc::new(engine)),
+            gsettings_gate,
         }
     }
 
@@ -77,30 +126,33 @@ impl ModuleProvider {
     /// write engine (file/service backends over **injected fixture roots**,
     /// deny-by-default privilege broker). The registry's descriptors keep
     /// their natural controls so the flows are exercisable end to end.
-    /// Live environments never construct this.
+    /// Live environments use [`ModuleProvider::live`].
     pub fn with_fixture_write_engine(
         registry: Arc<Mutex<ModuleRegistry>>,
         router: BackendRouter,
         engine: crate::write::WriteEngine,
     ) -> Self {
-        {
-            let mut locked = registry.lock().expect("registry lock");
-            locked.enable_fixture_writes();
-        }
-        Self {
-            registry,
-            written: Arc::new(Mutex::new(HashMap::new())),
-            router,
-            engine: Some(std::sync::Arc::new(engine)),
-        }
+        Self::with_write_engine(registry, router, engine)
     }
 
     /// Re-evaluate applicability against a snapshot. Returns whether the set
     /// of available settings changed (the adapter reloads only then).
+    /// Also refreshes the GSettings desktop gate from the detected session
+    /// (D51): only a positively identified GNOME session opens it.
     pub fn set_environment(
         &self,
         snapshot: Option<&crate::discovery::EnvironmentSnapshot>,
     ) -> bool {
+        let gnome = snapshot
+            .map(|snapshot| snapshot.session.desktop == crate::discovery::DesktopIdentity::Gnome);
+        if let Some(gate) = &self.gsettings_gate {
+            gate.set(gnome);
+            crate::log::info(
+                "core::modules",
+                "gsettings desktop gate refreshed",
+                &[("open", gnome.unwrap_or(false).to_string())],
+            );
+        }
         let mut registry = self.registry.lock().expect("registry lock");
         registry.set_environment(snapshot)
     }
@@ -116,6 +168,31 @@ impl ModuleProvider {
     /// The backend router handle (watch paths for the settings watcher).
     pub fn router(&self) -> &BackendRouter {
         &self.router
+    }
+
+    /// The (schema, key) pairs for the native GSettings change watcher
+    /// (07 Integration B): every registered, currently-applicable
+    /// gsettings-backed setting.
+    pub fn gsettings_watch_keys(&self) -> Vec<(String, String)> {
+        self.with_registry(|registry| {
+            let ids: Vec<String> = registry
+                .descriptors()
+                .iter()
+                .map(|descriptor| descriptor.id.clone())
+                .collect();
+            ids.iter()
+                .filter_map(|id| {
+                    registry.setting_status(id).ok()?;
+                    let (_def, setting) = registry.setting(id)?;
+                    match &setting.backend {
+                        BackendBinding::GSettings { schema, key } => {
+                            Some((schema.clone(), key.clone()))
+                        }
+                        _ => None,
+                    }
+                })
+                .collect()
+        })
     }
 
     fn setting_error(&self, id: &str, reason: String) -> LicomanError {
@@ -262,14 +339,24 @@ impl Provider for ModuleProvider {
                 .ok_or_else(|| self.setting_error(id, "This setting is not registered.".into()))?
         };
         let mut result = self.router.read(&backend, &descriptor)?;
-        // Fixture-write mode: the engine can write this family, so the
-        // envelope must not claim read-only. GSettings stays fail-closed —
-        // the engine refuses it (live dconf writes are Phase 07).
-        let engine_backed = self.engine.is_some()
-            && matches!(
-                backend,
-                BackendBinding::File { .. } | BackendBinding::DBus { .. }
-            );
+        // Engine-backed families present as writable when the engine can
+        // actually write them here (D49). Per family:
+        // - file: the version/environment gate (Alacritty options, D50);
+        // - dbus: the read succeeded, so the service is present;
+        // - gsettings: only with the desktop gate open (D51).
+        let engine = self.engine.as_ref();
+        let engine_backed = match (&engine, &backend) {
+            (Some(_), BackendBinding::File { .. }) => matches!(
+                self.router.write_support(&backend),
+                crate::read::SupportState::Available
+            ),
+            (Some(_), BackendBinding::DBus { .. }) => true,
+            (Some(_), BackendBinding::GSettings { .. }) => self
+                .gsettings_gate
+                .as_ref()
+                .is_some_and(|gate| gate.get() == Some(true)),
+            _ => false,
+        };
         if engine_backed {
             result.writable = Writable::Yes;
         }
@@ -344,10 +431,54 @@ impl Provider for ModuleProvider {
         let outcome = engine.apply(&request, &descriptor)?;
         // Fresh verification read: the store publishes this as the row's new
         // provenance (origin, fingerprint) so the next change re-checks the
-        // current revision.
-        let (verification, verification_error) = match self.read_detailed(id) {
-            Ok(result) => (Some(result), None),
-            Err(error) => (None, Some(error)),
+        // current revision. GSettings verifies through the same native
+        // transport the write used (like service targets): the dconf
+        // user-db file can lag behind dconf-service, and a lagging file must
+        // never turn an engine-verified write into a false conflict. The
+        // next background read pass re-publishes the GVDB-based provenance.
+        let (verification, verification_error) = if matches!(
+            (&backend, engine.gsettings()),
+            (BackendBinding::GSettings { .. }, Some(_))
+        ) {
+            match (&backend, engine.gsettings()) {
+                (BackendBinding::GSettings { schema, key }, Some(gsettings)) => match gsettings
+                    .native_read(schema, key)
+                    .map_err(|error| error.to_licoman("verifying after the write"))
+                {
+                    Ok((value, user)) => (
+                        Some(crate::read::ReadResult {
+                            value,
+                            origin: if user.is_some() {
+                                crate::read::ValueOrigin::User
+                            } else {
+                                crate::read::ValueOrigin::Default
+                            },
+                            writable: Writable::Yes,
+                            freshness: crate::read::Freshness::now(crate::read::fnv1a_fingerprint(
+                                format!("native:{schema}/{key}").as_bytes(),
+                            )),
+                            restart_effect: crate::read::RestartEffect::Session,
+                            details: crate::read::SourceDetails {
+                                backend_kind: "gsettings",
+                                target: format!("{schema} / {key}"),
+                                origin_note: Some(
+                                    "verified through the native GSettings API".to_string(),
+                                ),
+                                imported: false,
+                                diagnostics: Vec::new(),
+                            },
+                        }),
+                        None,
+                    ),
+                    Err(error) => (None, Some(error)),
+                },
+                _ => unreachable!("matched above"),
+            }
+        } else {
+            match self.read_detailed(id) {
+                Ok(result) => (Some(result), None),
+                Err(error) => (None, Some(error)),
+            }
         };
         Ok(crate::provider::WriteOutcome {
             outcome,
@@ -379,6 +510,17 @@ impl Provider for ModuleProvider {
                 };
                 Some(ResetSupport {
                     disclosure: ResetDisclosure::DeletesOverride { target: key },
+                    default_value: None,
+                    kind: Change::RemoveOverride,
+                })
+            }
+            (BackendBinding::GSettings { schema, key }, Some(_engine)) => {
+                // GSettings reset uses the platform's actual reset semantics
+                // (g_settings_reset — the override is removed, D51).
+                Some(ResetSupport {
+                    disclosure: ResetDisclosure::DeletesOverride {
+                        target: format!("{schema}/{key}"),
+                    },
                     default_value: None,
                     kind: Change::RemoveOverride,
                 })

@@ -947,10 +947,16 @@ fn shell_text_in_values_is_stored_verbatim_and_never_executed() {
     assert!(after.contains(hostile), "value must land verbatim as data");
 }
 
-// ---- GSettings gate + mock-target guard at engine level -------------------------
+// ---- GSettings engine gate + mock-target guard at engine level ----------------
+//
+// Phase 07 semantics (07_FIRST_REAL_INTEGRATIONS.md Integration B): an
+// engine without a GSettings backend refuses GSettings writes (honest gate);
+// an engine **with** one additionally requires the fail-closed desktop gate
+// (covered by the gsettings_write suite, including the memory-backend round
+// trip). Nothing here or in CI touches a real dconf database.
 
 #[test]
-fn gsettings_writes_are_gated_to_phase_07_and_mock_targets_refused() {
+fn gsettings_writes_refuse_without_a_backend_and_mock_targets_stay_refused() {
     let fx = FileFixture::new(&[]);
     let engine = test_engine(&fx);
     let mut descriptor = descriptor("t16", crate::value::SettingType::Bool);
@@ -971,7 +977,11 @@ fn gsettings_writes_are_gated_to_phase_07_and_mock_targets_refused() {
     );
     let error = engine.apply(&request, &descriptor).unwrap_err();
     assert_eq!(error.kind, ErrorKind::Permission);
-    assert!(error.user_message.contains("Phase 07"));
+    assert!(
+        error
+            .user_message
+            .contains("GSettings writes are not enabled")
+    );
 
     let request = ChangeRequest::resolve(
         &descriptor,

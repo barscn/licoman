@@ -93,13 +93,13 @@ pub struct ModuleRegistry {
     descriptors: Vec<SettingDescriptor>,
     /// Facts applicability was last evaluated against (None = pending).
     facts: Option<EnvironmentFacts>,
-    /// Demo-only flag: descriptors keep their natural (editable) controls
-    /// for non-mock backends, so the fixture-backed write engine can be
-    /// exercised end to end. The provider enables it **only** when an
-    /// engine over injected fixture roots is attached; live providers never
-    /// set it, and the hard boundary for real backends stays in
-    /// [`ModuleProvider::write`] (fail-closed).
-    fixture_writes: bool,
+    /// Flag: descriptors keep their natural (editable) controls for
+    /// non-mock backends. The provider enables it only when a write engine
+    /// is attached — fixture engines (demos/tests, injected roots) or the
+    /// live engine (Phase 07, D49). Every actual write still goes through
+    /// the engine's policy/value/target gates; this flag only governs
+    /// presentation.
+    write_controls: bool,
 }
 
 impl ModuleRegistry {
@@ -208,23 +208,23 @@ impl ModuleRegistry {
             for (setting_index, setting) in module.def.settings.iter().enumerate() {
                 let full_id = module.def.full_setting_id(setting);
                 self.descriptors
-                    .push(descriptor_for(module, setting, self.fixture_writes));
+                    .push(descriptor_for(module, setting, self.write_controls));
                 self.setting_index
                     .insert(full_id, (module_index, setting_index));
             }
         }
     }
 
-    /// Phase 06 demo-only: keep the natural (editable) controls for
-    /// non-mock backends so the fixture-backed write engine can be exercised
-    /// end to end. Returns whether descriptors were rebuilt. Never called by
-    /// live providers — real backends stay read-only there regardless of
-    /// this flag, enforced again at write time.
-    pub fn enable_fixture_writes(&mut self) -> bool {
-        if self.fixture_writes {
+    /// Keep the natural (editable) controls for non-mock backends: called
+    /// when a write engine is attached, fixture-backed (Phase 06 demos and
+    /// tests) or live (Phase 07, D49). Returns whether descriptors were
+    /// rebuilt. Presentation only — the engine re-derives and re-enforces
+    /// every policy at write time.
+    pub fn enable_write_controls(&mut self) -> bool {
+        if self.write_controls {
             return false;
         }
-        self.fixture_writes = true;
+        self.write_controls = true;
         self.finish();
         true
     }
@@ -407,7 +407,7 @@ fn provenance_lines(def: &ModuleDefinition) -> Vec<String> {
 pub fn descriptor_for(
     module: &LoadedModule,
     setting: &SettingDefinition,
-    fixture_writes: bool,
+    write_controls: bool,
 ) -> SettingDescriptor {
     let def = &module.def;
     let full_id = def.full_setting_id(setting);
@@ -450,11 +450,10 @@ pub fn descriptor_for(
         }
     };
 
-    // Non-mock backends render read-only (truthful, hard boundary: this
-    // build never writes them live). The Phase 06 fixture-write demo mode
-    // keeps natural controls so the engine over injected fixture roots can
-    // be exercised — real backends still refuse at write time.
-    let (control, apply_mode) = if !setting.backend.is_mock() && !fixture_writes {
+    // Non-mock backends render read-only unless a write engine is attached
+    // (Phase 06 fixtures / Phase 07 live, D49). Every actual write still
+    // passes the engine's gates.
+    let (control, apply_mode) = if !setting.backend.is_mock() && !write_controls {
         (Control::ReadOnly, ApplyMode::Staged)
     } else {
         (control, apply_mode)

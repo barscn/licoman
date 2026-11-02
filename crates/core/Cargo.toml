@@ -25,3 +25,9 @@ schemars = "1"
 # background thread; async-io matches the ashpd feature set already in the
 # tree (gpui-base) — mixing tokio there is a compile error.
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+# Native GSettings write API (Phase 07, Integration B): typed set/reset/
+# readback through libgio. Reads keep the self-contained GVDB parser so
+# fixture tests stay independent of a desktop session.
+gio = { workspace = true }
+# xattr preserve-or-refuse for the file write backend (D53).
+xattr = { workspace = true }

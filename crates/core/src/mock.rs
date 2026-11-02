@@ -9,8 +9,8 @@
 //! reads"), writes are synchronous, and failures are declared per fixture.
 //! Everything visible is mock content and the UI labels it as such.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use crate::descriptor::{Control, Scope, SettingDescriptor};
 use crate::error::{ErrorKind, LicomanError};
@@ -69,7 +69,7 @@ struct MockRuntime {
 pub struct MockProvider {
     id: &'static str,
     fixtures: Vec<MockSettingFixture>,
-    runtime: RefCell<MockRuntime>,
+    runtime: Mutex<MockRuntime>,
 }
 
 impl MockProvider {
@@ -77,7 +77,7 @@ impl MockProvider {
         Self {
             id,
             fixtures,
-            runtime: RefCell::new(MockRuntime {
+            runtime: Mutex::new(MockRuntime {
                 read_counts: HashMap::new(),
                 written: HashMap::new(),
             }),
@@ -343,7 +343,7 @@ impl Provider for MockProvider {
             ));
         }
 
-        let mut runtime = self.runtime.borrow_mut();
+        let mut runtime = self.runtime.lock().expect("mock runtime lock");
         if let Some(written) = runtime.written.get(id) {
             return Ok(written.clone());
         }
@@ -390,7 +390,8 @@ impl Provider for MockProvider {
             ));
         }
         self.runtime
-            .borrow_mut()
+            .lock()
+            .expect("mock runtime lock")
             .written
             .insert(id.to_string(), value.clone());
         Ok(())

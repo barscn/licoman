@@ -143,6 +143,9 @@ pub struct AppState {
     /// Held for the process lifetime: debounced watchers over the read
     /// backends' config paths (dconf db, Alacritty config dir).
     settings_watcher: Option<crate::settings_watch::SettingsWatcher>,
+    /// Held for the process lifetime: native GSettings change notifications
+    /// (gio signals; 07 Integration B). None outside a live environment.
+    gsettings_watcher: Option<crate::gsettings_watch::GSettingsWatcher>,
     /// Bumped per background read pass; stale results must not publish.
     reads_generation: u64,
     /// Bumped per write pass; stale publishes must not land.
@@ -151,6 +154,14 @@ pub struct AppState {
     /// demo): background reads then run against fixtures even though
     /// discovery is demo-locked.
     reads_fixture_backed: bool,
+    /// Read handles for providers outside the module registry (Phase 07
+    /// diagnostics providers), each with the ids it owns. The read pass
+    /// dispatches per id: module ids go to the module provider, these to
+    /// their own handles.
+    extra_readers: Vec<(
+        std::collections::HashSet<String>,
+        Arc<dyn licoman_core::Provider>,
+    )>,
 }
 
 impl EventEmitter<AppEvent> for AppState {}
@@ -163,10 +174,40 @@ impl AppState {
             module_provider,
             environment_watcher: None,
             settings_watcher: None,
+            gsettings_watcher: None,
             reads_generation: 0,
             apply_generation: 0,
             reads_fixture_backed: false,
+            extra_readers: Vec::new(),
         }
+    }
+
+    /// Register a non-module read provider whose ids the background read
+    /// pass must serve (e.g. the Hyprland diagnostics provider).
+    pub fn add_extra_reader(&mut self, provider: Arc<dyn licoman_core::Provider>) {
+        let ids: std::collections::HashSet<String> = provider
+            .descriptors()
+            .iter()
+            .map(|descriptor| descriptor.id.clone())
+            .collect();
+        self.extra_readers.push((ids, provider));
+    }
+
+    /// The read handle that owns `id`: the module provider when the module
+    /// registry declares it, else the registered extra reader.
+    fn reader_for(&self, id: &str) -> Arc<dyn licoman_core::Provider> {
+        let module_owned = self
+            .module_provider
+            .with_registry(|registry| registry.setting(id).is_some());
+        if module_owned {
+            return self.module_provider.clone();
+        }
+        for (ids, provider) in &self.extra_readers {
+            if ids.contains(id) {
+                return provider.clone();
+            }
+        }
+        self.module_provider.clone()
     }
 
     /// Mark the provider's backend router as fixture-backed (demo mode).
@@ -223,6 +264,7 @@ impl AppState {
         // ingest — first reads and refreshes alike.
         self.schedule_background_reads(cx);
         self.ensure_settings_watcher(cx);
+        self.ensure_gsettings_watcher(cx);
     }
 
     /// Schedule one background read pass over every Background-latency
@@ -247,10 +289,18 @@ impl AppState {
             "background read pass scheduled",
             &[("settings", ids.len().to_string())],
         );
-        let provider = self.module_provider.clone();
+        // Resolve each id's owning read handle up front (UI thread, registry
+        // lookups only) so the background pass sends every read to the
+        // provider that actually serves it.
+        let jobs: Vec<(String, Arc<dyn licoman_core::Provider>)> = ids
+            .into_iter()
+            .map(|id| {
+                let handle = self.reader_for(&id);
+                (id, handle)
+            })
+            .collect();
         cx.spawn(async move |this, cx| {
-            for id in ids {
-                let provider = provider.clone();
+            for (id, provider) in jobs {
                 let id_for_read = id.clone();
                 let result = cx
                     .background_executor()
@@ -261,6 +311,19 @@ impl AppState {
                 let published = this.update(cx, |state, cx| {
                     if state.reads_generation != generation {
                         return; // a newer pass owns the rows now
+                    }
+                    // Failed background reads are honest unavailable rows;
+                    // log them (id and error kind only — never values) so a
+                    // live run's silent failures stay diagnosable.
+                    if let Err(error) = &result {
+                        licoman_core::log::info(
+                            "ui::reads",
+                            "background read failed",
+                            &[
+                                ("id", id.to_string()),
+                                ("kind", format!("{:?}", error.kind)),
+                            ],
+                        );
                     }
                     if state.store.publish_read(&id, result) {
                         cx.emit(AppEvent::SettingsChanged);
@@ -307,6 +370,32 @@ impl AppState {
         }
         if let Some(watcher) = crate::settings_watch::start(cx.weak_entity(), paths, cx) {
             self.settings_watcher = Some(watcher);
+        }
+    }
+
+    /// Attach (or re-attach) the native GSettings change watcher over the
+    /// currently-applicable schema/key pairs (07 Integration B). Notifications
+    /// run the same debounced refresh path as the filesystem watcher; a
+    /// pending edit is never dropped — the refresh re-reads the source, and
+    /// the apply-time conflict checks catch the moved value.
+    pub fn ensure_gsettings_watcher(&mut self, cx: &mut Context<Self>) {
+        if self.environment.demo_locked {
+            return;
+        }
+        let keys = self.module_provider.gsettings_watch_keys();
+        if keys.is_empty() {
+            self.gsettings_watcher = None;
+            return;
+        }
+        if self
+            .gsettings_watcher
+            .as_ref()
+            .is_some_and(|w| w.keys() == keys.as_slice())
+        {
+            return; // unchanged; keep the existing watcher
+        }
+        if let Some(watcher) = crate::gsettings_watch::start(cx.weak_entity(), keys, cx) {
+            self.gsettings_watcher = Some(watcher);
         }
     }
 

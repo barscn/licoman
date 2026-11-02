@@ -53,6 +53,10 @@ pub struct FileReadBackend {
     config_home: PathBuf,
     home: PathBuf,
     system_roots: Vec<PathBuf>,
+    /// Alacritty version support on this machine (D50): the live
+    /// constructor detects it; fixture constructors inject a known state so
+    /// tests never depend on the host's installed applications.
+    alacritty: crate::read::alacritty::AlacrittySupport,
 }
 
 impl FileReadBackend {
@@ -71,6 +75,7 @@ impl FileReadBackend {
             config_home,
             home,
             system_roots: vec![PathBuf::from("/etc")],
+            alacritty: crate::read::alacritty::detect(),
         }
     }
 
@@ -79,6 +84,81 @@ impl FileReadBackend {
             config_home,
             home,
             system_roots,
+            // Fixture/test constructor: assume a TOML-era Alacritty so the
+            // version gate is exercised only where a test deliberately
+            // changes it (D50). The live constructor detects for real.
+            alacritty: crate::read::alacritty::AlacrittySupport::Toml(
+                crate::read::alacritty::AppVersion::new(0, 13, 0),
+            ),
+        }
+    }
+
+    /// Override the detected Alacritty support state (tests and demos;
+    /// the live environment always detects).
+    pub fn with_alacritty_support(
+        mut self,
+        support: crate::read::alacritty::AlacrittySupport,
+    ) -> Self {
+        self.alacritty = support;
+        self
+    }
+
+    /// The detected/injected Alacritty support state (D50).
+    pub fn alacritty_support(&self) -> &crate::read::alacritty::AlacrittySupport {
+        &self.alacritty
+    }
+
+    /// Whether this binding may be **written** in this environment. Reads
+    /// stay available regardless; writes are gated per option and version
+    /// (07 Integration A: "unsupported versions don't show invented
+    /// controls", fail-closed on unknown versions — D50).
+    pub fn write_support(&self, binding: &BackendBinding) -> SupportState {
+        let BackendBinding::File {
+            format,
+            key,
+            resolution,
+            ..
+        } = binding
+        else {
+            return SupportState::Unavailable {
+                reason: "Not a configuration-file binding.".into(),
+            };
+        };
+        if *format != FileFormat::Toml {
+            return SupportState::Unavailable {
+                reason: format!(
+                    "This configuration is a {format:?} file. TOML configurations are \
+                     edited first; this format is recorded but not edited yet."
+                ),
+            };
+        }
+        match resolution {
+            Some(FileResolution::Alacritty) => match &self.alacritty {
+                crate::read::alacritty::AlacrittySupport::Toml(version) => {
+                    let Some(key) = key else {
+                        return SupportState::Unavailable {
+                            reason: "This setting does not name a configuration key.".into(),
+                        };
+                    };
+                    let min = crate::read::alacritty::option_min_version(key);
+                    if version.at_least(min) {
+                        SupportState::Available
+                    } else {
+                        SupportState::Unavailable {
+                            reason: format!(
+                                "This option requires Alacritty ≥ {}.{}.{}, but version \
+                                 {} was detected.",
+                                min.0, min.1, min.2, version.raw
+                            ),
+                        }
+                    }
+                }
+                other => SupportState::Unavailable {
+                    reason: other.describe(),
+                },
+            },
+            // Generic single-file bindings have no version dimension.
+            _ => SupportState::Available,
         }
     }
 
@@ -428,6 +508,25 @@ impl FileReadBackend {
                     .into_iter()
                     .find(|candidate| candidate.is_file())
                 else {
+                    // Distinguish the legacy YAML locations from a truly
+                    // absent configuration (07 Integration A: "legacy
+                    // locations" are an honest state, never a guess).
+                    if crate::read::alacritty::yaml_candidates(&self.config_home, &self.home)
+                        .iter()
+                        .any(|candidate| candidate.is_file())
+                    {
+                        return Err(LicomanError::new(
+                            ErrorKind::Unavailable,
+                            "Alacritty's configuration here is the legacy YAML format \
+                             (alacritty.yml), which Alacritty versions before 0.13 read. \
+                             Licoman edits TOML configurations (Alacritty 0.13+) only; \
+                             nothing was changed."
+                                .to_string(),
+                            "alacritty: only legacy .yml candidates exist on the \
+                             documented search paths"
+                                .to_string(),
+                        ));
+                    }
                     return Err(LicomanError::new(
                         ErrorKind::Unavailable,
                         "No Alacritty configuration file was found. Alacritty runs on its \
@@ -596,6 +695,7 @@ impl SettingsReadBackend for FileReadBackend {
         let probe = self.probe_key(binding, descriptor)?;
         let BackendBinding::File {
             key: Some(key_path),
+            resolution,
             ..
         } = binding
         else {
@@ -627,7 +727,7 @@ impl SettingsReadBackend for FileReadBackend {
         } else {
             ValueOrigin::User
         };
-        let details = if probe.single_file {
+        let mut details = if probe.single_file {
             SourceDetails {
                 backend_kind: "file",
                 target: format!("{} :: {}", probe.root.display(), key_path),
@@ -660,6 +760,14 @@ impl SettingsReadBackend for FileReadBackend {
                 diagnostics: probe.diagnostics,
             }
         };
+        // Surface the detected Alacritty support on every Alacritty row's
+        // Source details (07 Integration A: version applicability is
+        // visible, not implied).
+        if matches!(resolution, Some(FileResolution::Alacritty)) {
+            details
+                .diagnostics
+                .push(format!("alacritty: {}", self.alacritty.describe()));
+        }
         Ok(ReadResult {
             value,
             origin,

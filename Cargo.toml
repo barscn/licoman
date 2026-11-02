@@ -22,6 +22,16 @@ notify = "8"
 # futures channels bridge the notify watcher thread to the main-thread
 # executor (async awaits, never blocking). Already in the tree via gpui.
 futures = "0.3"
+# Native GSettings API for the Phase 07 write backend (07_FIRST_REAL_
+# INTEGRATIONS.md Integration B): typed set/reset/readback through libgio —
+# never a shell tool, never direct dconf database edits. Requires
+# libglib-2.0/libgio-2.0 at build and run time (present on every desktop).
+gio = "0.18"
+# Extended-attribute read/restore for the file write backend (the Phase 07
+# gate Phase 06 recorded: preserve-or-refuse ACLs/xattrs before any live
+# write). POSIX ACLs are extended attributes, so preserving xattrs
+# preserves ACLs.
+xattr = "1"
 
 [profile.release]
 lto = "thin"

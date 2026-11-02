@@ -30,6 +30,7 @@
 pub mod broker;
 pub mod engine;
 pub mod file_write;
+pub mod gsettings_write;
 pub mod request;
 pub mod service_write;
 
@@ -37,12 +38,19 @@ pub mod service_write;
 #[path = "write_matrix_tests.rs"]
 mod write_matrix_tests;
 
+#[cfg(test)]
+#[path = "phase07_matrix_tests.rs"]
+mod phase07_matrix_tests;
+
 pub use broker::{DenyAllBroker, PrivilegeBroker};
 pub use engine::WriteEngine;
+pub use file_write::FileWriteBackend;
+pub use gsettings_write::{GSettingsDesktopGate, GSettingsWriteBackend, NativeGSettings};
 pub use request::{
     Change, ChangeIntent, ChangeRequest, ResetDisclosure, ResetSupport, RollbackStrategy,
     ServiceBus, ServiceEndpoint, WriteTarget,
 };
+pub use service_write::ServiceWriteBackend;
 
 use std::time::Duration;
 

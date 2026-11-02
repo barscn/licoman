@@ -131,3 +131,34 @@ a non-idempotent mutation. Persistence is reported as `persistent`,
 4. Service path uses typed requests; partial/unknown outcomes are honest.
 5. The UI never reports "Applied" before a verification matched the request.
 6. Logs and operation records are redacted by construction (tested).
+
+## Phase 07 state — live writes
+
+The Phase 06 boundaries above are updated, not weakened:
+
+- Live providers carry a real write engine (D49); every write still passes
+  the store's policy gate, the engine's independent policy/value gates, and
+  requires an explicit user Apply/Confirm. Nothing writes at startup, in
+  discovery, in tests, or in CI.
+- The GSettings path uses only the native libgio API behind a fail-closed
+  desktop gate (D51); no shell tools, no dconf internals.
+- The Alacritty path is version-gated fail-closed (D50) and preserves
+  xattrs/ACLs or refuses the write (D53).
+- The PowerProfiles path is a typed property set with readback (D52).
+- The Phase 06 residual risks were closed or re-recorded: ACL/xattr
+  preservation is now preserve-or-refuse; in-root symlink following (D47)
+  remains, bounded by containment.
+
+### Incident record (L1 first attempt, 2026-11)
+
+The first disposable-isolation attempt used a process-level
+`XDG_CONFIG_HOME` override without a private session bus; dconf writes are
+routed by the **service's** environment, so one test key
+(`org.gnome.desktop.interface clock-show-weekday` → `true`) reached the
+real user database. Recovery was immediate and verified: native
+`gsettings reset`, `gsettings get` back to `false`, the key absent from
+`dconf dump`, no other key touched. The isolation procedure was fixed
+(private session bus + self-started `dconf-service` with the disposable
+environment) and the approved operation was then executed cleanly with the
+real database fingerprint byte-identical before/after. Full timeline in
+`docs/handoffs/PHASE_07_REPORT.md`.

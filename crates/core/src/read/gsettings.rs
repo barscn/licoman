@@ -195,6 +195,89 @@ fn parse_dconf_profile(file: &Path) -> Option<Vec<String>> {
     Some(system)
 }
 
+/// Handle to the native GSettings change watcher (07 Integration B: "Support
+/// external changes via native settings notifications"). Dropping it stops
+/// the thread.
+pub struct NativeChangeWatch {
+    cancel: gio::glib::Sender<()>,
+    join: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for NativeChangeWatch {
+    fn drop(&mut self) {
+        let _ = self.cancel.send(());
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
+
+/// Subscribe to the native `changed` signals of `(schema, key)` pairs on a
+/// dedicated thread with its own main context, forwarding each notification
+/// to `notify` (the caller debounces). Schemas that are not installed are
+/// skipped (they cannot change). Returns `None` when no GLib schema source
+/// exists — Refresh remains the invalidation path, as with every watcher.
+pub fn spawn_native_change_watcher(
+    keys: Vec<(String, String)>,
+    notify: impl Fn() + Send + Sync + 'static,
+) -> Option<NativeChangeWatch> {
+    if keys.is_empty() {
+        return None;
+    }
+    let notify = std::sync::Arc::new(notify);
+    // The deprecated MainContext channel is the cancel path only; glib's
+    // suggested async-channel replacement is not otherwise a dependency.
+    #[allow(deprecated)]
+    let (cancel_tx, cancel_rx) =
+        gio::glib::MainContext::channel::<()>(gio::glib::Priority::DEFAULT);
+    let join = std::thread::Builder::new()
+        .name("licoman-gsettings-watch".into())
+        .spawn(move || {
+            use gio::glib::ControlFlow;
+            use gio::prelude::*;
+
+            let context = gio::glib::MainContext::new();
+            // Panic-safe thread-default scope: signal dispatch is bound to
+            // this context, and it is popped when the closure returns.
+            let _ = context.with_thread_default(|| {
+                if let Some(source) = gio::SettingsSchemaSource::default() {
+                    for (schema, key) in &keys {
+                        let Some(schema_obj) = source.lookup(schema, true) else {
+                            continue;
+                        };
+                        if !schema_obj.has_key(key) {
+                            continue;
+                        }
+                        let settings = gio::Settings::new_full(
+                            &schema_obj,
+                            None::<&gio::SettingsBackend>,
+                            schema_obj.path().as_deref(),
+                        );
+                        let notify = notify.clone();
+                        settings.connect_changed(Some(key.as_str()), move |_settings, _key| {
+                            notify();
+                        });
+                    }
+                }
+
+                let main_loop = gio::glib::MainLoop::new(Some(&context), false);
+                {
+                    let main_loop = main_loop.clone();
+                    cancel_rx.attach(Some(&context), move |_| {
+                        main_loop.quit();
+                        ControlFlow::Break
+                    });
+                }
+                main_loop.run();
+            });
+        })
+        .ok()?;
+    Some(NativeChangeWatch {
+        cancel: cancel_tx,
+        join: Some(join),
+    })
+}
+
 fn value_error(id: &str, reason: impl Into<String>, technical: impl Into<String>) -> LicomanError {
     let technical = format!("{id}: {}", technical.into());
     LicomanError::new(ErrorKind::Unavailable, reason, technical)

@@ -2,7 +2,7 @@ schema_version = 1
 id = "app.alacritty"
 scope = "application"
 title = "Alacritty"
-description = "Terminal emulator. Values are read from your Alacritty configuration (TOML), including general.import merges; settings absent from the config show no value because Alacritty's built-in defaults are not validated here."
+description = "Terminal emulator. Values are read from your Alacritty configuration (TOML, Alacritty 0.13+), including general.import merges; settings absent from the config show no value because Alacritty's built-in defaults are not validated here. Options are validated against the detected Alacritty version; a TOML change is picked up by Alacritty's live config reload (default on) or on the next start."
 category = "Terminal"
 order = 10
 docs_url = "https://alacritty.org/config-alacritty.html"
@@ -41,7 +41,7 @@ description = "The terminal font size."
 keywords = ["font"]
 type = "float"
 control = "slider"
-default = 13
+default = 11.25
 min = 6
 max = 32
 step = 0.5
@@ -61,7 +61,7 @@ title = "Horizontal padding"
 description = "Space between text and the window edge."
 type = "integer"
 control = "slider"
-default = 4
+default = 0
 min = 0
 max = 40
 unit = "px"
@@ -80,7 +80,7 @@ title = "Vertical padding"
 description = "Space above and below the text."
 type = "integer"
 control = "slider"
-default = 4
+default = 0
 min = 0
 max = 40
 unit = "px"
@@ -133,7 +133,8 @@ resolution = "alacritty"
 [[settings]]
 id = "startup_mode"
 title = "Startup mode"
-description = "How new windows appear."
+description = "How new windows appear. Changes require a restart."
+restart = "app"
 type = "enum"
 control = "dropdown"
 default = "Windowed"
@@ -171,11 +172,12 @@ resolution = "alacritty"
 [[settings]]
 id = "columns"
 title = "Default columns"
-description = "Initial window width in columns."
+description = "Initial window width in columns. 0 uses Alacritty's runtime default. Changes require a restart."
+restart = "app"
 type = "integer"
 control = "number"
-default = 120
-min = 10
+default = 0
+min = 0
 max = 500
 group = "Window"
 order = 9
@@ -189,11 +191,12 @@ resolution = "alacritty"
 [[settings]]
 id = "lines"
 title = "Default lines"
-description = "Initial window height in lines."
+description = "Initial window height in lines. 0 uses Alacritty's runtime default. Changes require a restart."
+restart = "app"
 type = "integer"
 control = "number"
-default = 40
-min = 5
+default = 0
+min = 0
 max = 200
 group = "Window"
 order = 10
@@ -239,20 +242,36 @@ order = 12
 kind = "file"
 path = "alacritty/alacritty.toml"
 format = "toml"
-key = "cursor.style.unfocused_hollow"
+key = "cursor.unfocused_hollow"
 resolution = "alacritty"
 
 [[settings]]
 id = "cursor_blink"
 title = "Cursor blink"
-description = "Whether the terminal cursor blinks."
-type = "boolean"
-control = "switch"
-default = false
+description = "When the terminal cursor blinks (the real Alacritty option is cursor.style.blinking)."
+type = "enum"
+control = "dropdown"
+default = "Off"
 group = "Cursor"
 order = 13
+[[settings.options]]
+value = "Never"
+label = "Never (system preference ignored)"
+[[settings.options]]
+value = "Off"
+label = "Off"
+[[settings.options]]
+value = "On"
+label = "On"
+[[settings.options]]
+value = "Always"
+label = "Always (also unfocused)"
 [settings.backend]
-kind = "mock"
+kind = "file"
+path = "alacritty/alacritty.toml"
+format = "toml"
+key = "cursor.style.blinking"
+resolution = "alacritty"
 
 [[settings]]
 id = "scrollback_lines"
@@ -276,7 +295,8 @@ resolution = "alacritty"
 [[settings]]
 id = "live_config_reload"
 title = "Live config reload"
-description = "Apply config file changes immediately."
+description = "Apply config file changes immediately. Changing this option requires a restart."
+restart = "app"
 type = "boolean"
 control = "switch"
 default = true
@@ -292,20 +312,18 @@ resolution = "alacritty"
 [[settings]]
 id = "bell_animation"
 title = "Bell animation"
-description = "Visual effect when the bell rings."
+description = "Visual effect when the bell rings. Only easing values valid across Alacritty 0.13+ are offered."
 type = "enum"
 control = "dropdown"
-default = "None"
+default = "Linear"
 group = "Advanced"
 order = 16
 [[settings.options]]
 value = "Ease"
 [[settings.options]]
-value = "EaseOutFlash"
-[[settings.options]]
 value = "EaseOutQuad"
 [[settings.options]]
-value = "None"
+value = "Linear"
 [settings.backend]
 kind = "file"
 path = "alacritty/alacritty.toml"
@@ -332,7 +350,7 @@ resolution = "alacritty"
 [[settings]]
 id = "shell"
 title = "Shell"
-description = "The program started in new terminals. Empty uses the login shell."
+description = "The program started in new terminals. Empty uses the login shell. Not editable: the key moved to terminal.shell in Alacritty 0.14, so one binding cannot be safe across versions."
 type = "path"
 control = "path_input"
 default = ""
@@ -346,7 +364,7 @@ kind = "mock"
 [[settings]]
 id = "working_directory"
 title = "Working directory"
-description = "Directory new terminals start in."
+description = "Directory new terminals start in. Not editable: shell-related keys moved between sections across Alacritty versions."
 type = "path"
 control = "path_input"
 default = ""

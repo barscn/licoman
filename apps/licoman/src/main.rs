@@ -255,11 +255,28 @@ fn main() {
                 .expect("writes env")
                 .provider(module_registry.clone())
         } else {
-            licoman_core::modules::ModuleProvider::new(module_registry.clone())
+            // Phase 07 (D49): the live run carries the real write engine.
+            // Nothing writes without the user's explicit Apply/Confirm; the
+            // gates stay closed for non-GNOME sessions and unverified
+            // application versions.
+            licoman_core::modules::ModuleProvider::live(module_registry.clone())
         });
         registry.register(Box::new(licoman_core::modules::ModuleProvider::clone(
             &provider,
         )));
+        Some(provider)
+    } else {
+        None
+    };
+    // The optional Hyprland read-only diagnostics (07 plan section) — live
+    // runs only: demo fixtures must never read live host state, so demo
+    // processes do not register this provider. The handle is shared with
+    // the AppState read pass so its ids route to the right provider.
+    let hyprland_diagnostics = if demo_name.is_empty() {
+        let provider = std::sync::Arc::new(licoman_core::hyprland::HyprlandDiagnostics::new());
+        registry.register(Box::new(
+            licoman_core::hyprland::HyprlandDiagnostics::clone(&provider),
+        ));
         Some(provider)
     } else {
         None
@@ -292,7 +309,7 @@ fn main() {
 
             cx.set_global(WindowRegistry::default());
             let app = cx.new(|_| {
-                AppState::new(
+                let mut state = AppState::new(
                     store,
                     module_provider.unwrap_or_else(|| {
                         // Demo "empty" has no module provider; the UI only
@@ -303,7 +320,13 @@ fn main() {
                             )),
                         ))
                     }),
-                )
+                );
+                // The Hyprland diagnostics provider serves its own ids in the
+                // background read pass (registered live-only below).
+                if let Some(handle) = hyprland_diagnostics.clone() {
+                    state.add_extra_reader(handle);
+                }
+                state
             });
 
             // Environment discovery (Phase 03). Demo fixture names replace
@@ -348,6 +371,42 @@ fn main() {
                     state.ensure_environment_watcher(cx);
                     state.start_discovery(cx);
                 });
+                // Capture affordance for LIVE-state screenshots (no demo
+                // fixture, no locking — discovery and reads stay live):
+                // LICOMAN_CAPTURE_NAV="Scope/Category" navigates once the
+                // first discovery stages have published. Navigation only;
+                // it never changes setting state.
+                let nav = std::env::var("LICOMAN_CAPTURE_NAV").unwrap_or_default();
+                if let Some((scope, category)) = nav.split_once('/') {
+                    let scope = match scope {
+                        "Shared" => Scope::Shared,
+                        "Desktop" => Scope::Desktop,
+                        "Distribution" => Scope::Distribution,
+                        _ => Scope::Shared,
+                    };
+                    let category = category.to_string();
+                    let app_for_nav = app.clone();
+                    cx.spawn(async move |cx| {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_millis(4500))
+                            .await;
+                        app_for_nav.update(cx, |state, cx| {
+                            licoman_core::log::info(
+                                "licoman::capture",
+                                "capture navigation dispatched",
+                                &[("category", category.clone())],
+                            );
+                            state.dispatch(Command::SelectScope(scope), cx);
+                            state.dispatch(Command::SelectCategory(Some(category)), cx);
+                            // Navigation commands report settings_changed:
+                            // false, so the windows must be notified
+                            // explicitly (interactive clicks do this through
+                            // their listeners; a programmatic hook does not).
+                            cx.notify();
+                        });
+                    })
+                    .detach();
+                }
             }
 
             match demo.as_str() {

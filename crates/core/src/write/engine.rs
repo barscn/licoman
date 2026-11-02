@@ -32,12 +32,17 @@ use crate::write::{
 pub struct WriteEngine {
     file: FileWriteBackend,
     service: ServiceWriteBackend,
+    /// GSettings backend: `Some` only where the native API is wired (live
+    /// providers and gsettings-fixture tests). `None` refuses GSettings
+    /// writes with an honest gate message.
+    gsettings: Option<std::sync::Arc<crate::write::gsettings_write::GSettingsWriteBackend>>,
     broker: Arc<dyn PrivilegeBroker>,
     log: std::sync::Mutex<OperationLog>,
 }
 
 impl WriteEngine {
-    /// Production-shaped engine (deny-by-default broker, standard timeouts).
+    /// Production-shaped engine (deny-by-default broker, standard timeouts,
+    /// no GSettings backend — attach one explicitly where supported).
     pub fn new(file: FileWriteBackend, service: ServiceWriteBackend) -> Self {
         Self::with_broker(file, service, Arc::new(DenyAllBroker))
     }
@@ -53,9 +58,27 @@ impl WriteEngine {
         Self {
             file,
             service,
+            gsettings: None,
             broker,
             log: std::sync::Mutex::new(OperationLog::default()),
         }
+    }
+
+    /// Attach the GSettings write backend (live providers with the native
+    /// layer; gsettings-fixture tests with the memory backend).
+    pub fn with_gsettings(
+        mut self,
+        gsettings: std::sync::Arc<crate::write::gsettings_write::GSettingsWriteBackend>,
+    ) -> Self {
+        self.gsettings = Some(gsettings);
+        self
+    }
+
+    /// The GSettings backend when attached (the provider consults its gate).
+    pub fn gsettings(
+        &self,
+    ) -> Option<&std::sync::Arc<crate::write::gsettings_write::GSettingsWriteBackend>> {
+        self.gsettings.as_ref()
     }
 
     /// The privilege broker in use (diagnostics).
@@ -116,12 +139,18 @@ impl WriteEngine {
                 "Mock settings are written in memory by the provider, not by the engine.",
                 format!("engine: mock target for {}", request.setting_id),
             )),
-            WriteTarget::GSettings { .. } => Err(LicomanError::new(
-                ErrorKind::Permission,
-                "Licoman does not write GSettings yet. Live dconf writes are gated \
-                 behind Phase 07 review; nothing was modified.",
-                format!("gsettings write gate for {}", request.setting_id),
-            )),
+            WriteTarget::GSettings { .. } => match &self.gsettings {
+                Some(backend) => backend.apply(request, descriptor),
+                None => Err(LicomanError::new(
+                    ErrorKind::Permission,
+                    "GSettings writes are not enabled in this environment. Nothing \
+                     was modified.",
+                    format!(
+                        "gsettings backend not attached for {} (Phase 07 gate)",
+                        request.setting_id
+                    ),
+                )),
+            },
             WriteTarget::File { .. } => self.file.apply(request, descriptor),
             WriteTarget::Service { .. } => self.service.apply(request, descriptor),
         };

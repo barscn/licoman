@@ -48,6 +48,7 @@ use toml_edit::{DocumentMut, Item, Table, Value};
 use crate::descriptor::SettingDescriptor;
 use crate::error::{ErrorKind, LicomanError};
 use crate::modules::def::BackendBinding;
+use crate::read::SupportState;
 use crate::read::file::{FileKeyProbe, FileReadBackend, MAX_CONFIG_BYTES, toml_value_to_setting};
 use crate::value::SettingValue;
 use crate::write::request::{Change, ChangeRequest, WriteTarget};
@@ -55,6 +56,41 @@ use crate::write::{ApplyOutcome, Persistence, conflict, io_error_to_licoman};
 
 /// Backups kept per affected target before the oldest is pruned.
 pub const MAX_BACKUPS_PER_TARGET: usize = 10;
+
+/// Extended-attribute operations used by the D53 preserve-or-refuse gate.
+/// POSIX ACLs are extended attributes, so preserving xattrs preserves ACLs.
+/// Injectable so the refusal path is testable.
+pub trait XattrOps: Send + Sync {
+    /// All readable `(name, value)` attributes of `path`. Any failure is a
+    /// refusal, never a silent skip.
+    fn collect(&self, path: &Path) -> std::io::Result<Vec<(std::ffi::OsString, Vec<u8>)>>;
+    /// Re-apply the collected attributes to `path` (the staged temp file).
+    /// Every attribute must land or the caller refuses the write.
+    fn restore(&self, path: &Path, attrs: &[(std::ffi::OsString, Vec<u8>)]) -> std::io::Result<()>;
+}
+
+/// The real operations over the `xattr` crate (a thin syscall wrapper).
+pub struct RealXattrOps;
+
+impl XattrOps for RealXattrOps {
+    fn collect(&self, path: &Path) -> std::io::Result<Vec<(std::ffi::OsString, Vec<u8>)>> {
+        let mut out = Vec::new();
+        for name in xattr::list(path)? {
+            let Some(value) = xattr::get(path, &name)? else {
+                continue;
+            };
+            out.push((name, value));
+        }
+        Ok(out)
+    }
+
+    fn restore(&self, path: &Path, attrs: &[(std::ffi::OsString, Vec<u8>)]) -> std::io::Result<()> {
+        for (name, value) in attrs {
+            xattr::set(path, name, value)?;
+        }
+        Ok(())
+    }
+}
 
 /// Deterministic fault injection (06_SAFE_WRITE_ENGINE.md §7). Tests toggle
 /// flags through the shared handle; production constructs a clean set.
@@ -78,6 +114,8 @@ pub struct FileWriteBackend {
     /// Current-user uid source (Linux `/proc/self` by default; injectable
     /// so the foreign-ownership rejection is testable).
     uid: Box<dyn Fn() -> u32 + Send + Sync>,
+    /// Extended-attribute preserve-or-refuse layer (D53).
+    xattrs: Box<dyn XattrOps>,
 }
 
 impl FileWriteBackend {
@@ -96,6 +134,7 @@ impl FileWriteBackend {
             backup_root,
             faults: std::sync::Arc::new(std::sync::Mutex::new(FaultSet::default())),
             uid,
+            xattrs: Box::new(RealXattrOps),
         };
         // Crash recovery (06_SAFE_WRITE_ENGINE.md §7): temp files left by a
         // process that died before the rename are swept from the backup root
@@ -106,6 +145,12 @@ impl FileWriteBackend {
         backend.sweep_stale_temps(backend.read.config_home());
         backend.sweep_stale_temps(&backend.read.config_home().join("alacritty"));
         backend
+    }
+
+    /// Injectable xattr layer (tests assert the D53 refusal paths).
+    pub fn with_xattr_ops(mut self, ops: Box<dyn XattrOps>) -> Self {
+        self.xattrs = ops;
+        self
     }
 
     /// Test/fault handle.
@@ -144,6 +189,22 @@ impl FileWriteBackend {
     ) -> Result<ApplyOutcome, LicomanError> {
         let started = Instant::now();
         let WriteTargetParts { binding, key_path } = WriteTargetParts::extract(request)?;
+
+        // --- 0: the environment must support editing this option ----------
+        // (D50: Alacritty options are version-validated; defense in depth —
+        // the provider consults this before rendering writable rows, and the
+        // engine refuses independently here.)
+        if let SupportState::Unavailable { reason } = self.read.write_support(&binding) {
+            return Err(LicomanError::new(
+                ErrorKind::Permission,
+                reason,
+                format!(
+                    "write support unavailable for {} ({} :: {key_path})",
+                    request.setting_id,
+                    binding.kind_name()
+                ),
+            ));
+        }
 
         // --- 1+2: resolve through approved logic, reject hostile shapes ---
         let probe = self.read.probe_key(&binding, descriptor)?;
@@ -229,10 +290,29 @@ impl FileWriteBackend {
         // --- 6: bounded private backup of only the affected file ----------
         let backup_path = Some(self.create_backup(request, &edit_path, &original_bytes)?);
 
+        // --- 6b: D53 — read the extended attributes (ACLs included) before
+        // anything is staged. Any read failure refuses the write up front;
+        // an attribute that cannot be restored later also refuses, with the
+        // original untouched. (Phase 06 gate: preserve-or-refuse before any
+        // live write.)
+        let xattrs = self.xattrs.collect(&edit_path).map_err(|error| {
+            LicomanError::new(
+                ErrorKind::WriteFailed,
+                "The file's extended attributes (which include access-control \
+                 entries) could not be read, so Licoman refuses to replace this \
+                 file — preserving them could not be guaranteed. Nothing was \
+                 modified.",
+                format!("{}: xattr collect: {error}", edit_path.display()),
+            )
+        })?;
+
         // --- 7: secure temp on the same filesystem, atomic rename ---------
         let meta = std::fs::symlink_metadata(&edit_path)
             .map_err(|error| io_error_to_licoman(&error, "reading file metadata"))?;
-        self.stage_and_rename(&edit_path, patched.as_bytes(), &meta)?;
+        // A refusal after the backup was created is safe (the original is
+        // untouched); the backup stays for the record but the error says
+        // nothing was modified.
+        self.stage_and_rename(&edit_path, patched.as_bytes(), &meta, &xattrs)?;
 
         // --- 8: read back and verify; restore on mismatch -----------------
         match self.verify(request, descriptor, &binding, &key_path) {
@@ -442,13 +522,15 @@ impl FileWriteBackend {
     }
 
     /// Stage the new content in a securely created temp file in the target's
-    /// directory, validate, preserve the mode, fsync, rename, fsync the
+    /// directory, validate, preserve the mode, restore the extended
+    /// attributes (D53 — failure refuses), fsync, rename, fsync the
     /// directory.
     fn stage_and_rename(
         &self,
         edit_path: &Path,
         patched: &[u8],
         original_meta: &std::fs::Metadata,
+        xattrs: &[(std::ffi::OsString, Vec<u8>)],
     ) -> Result<(), LicomanError> {
         self.sweep_stale_temps(edit_path.parent().unwrap_or_else(|| Path::new("/")));
         let mut temp_path = edit_path
@@ -492,6 +574,19 @@ impl FileWriteBackend {
         )) {
             let _ = std::fs::remove_file(&temp_path);
             return Err(io_error_to_licoman(&error, "preserving the file mode"));
+        }
+        // Restore the extended attributes onto the staged file. A rename
+        // replacement would otherwise silently drop them (ACLs included) —
+        // any restore failure refuses the whole write (D53).
+        if let Err(error) = self.xattrs.restore(&temp_path, xattrs) {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(LicomanError::new(
+                ErrorKind::WriteFailed,
+                "The file's extended attributes (which include access-control \
+                 entries) could not be preserved on the replacement, so the \
+                 change was refused. Nothing was modified.",
+                format!("{}: xattr restore: {error}", edit_path.display()),
+            ));
         }
         if let Err(error) = staged.sync_all() {
             let _ = std::fs::remove_file(&temp_path);
@@ -601,7 +696,8 @@ impl FileWriteBackend {
     }
 
     /// Byte-exact restore of one file from its backup, through the same
-    /// staging discipline as a write.
+    /// staging discipline as a write (including the D53 xattr gate — the
+    /// attributes currently on the target are carried over).
     fn restore_from_backup(&self, backup_path: &Path, target: &Path) -> bool {
         let Ok(bytes) = std::fs::read(backup_path) else {
             return false;
@@ -609,7 +705,11 @@ impl FileWriteBackend {
         let Ok(meta) = std::fs::symlink_metadata(target) else {
             return false;
         };
-        self.stage_and_rename(target, &bytes, &meta).is_ok()
+        let Ok(xattrs) = self.xattrs.collect(target) else {
+            return false;
+        };
+        self.stage_and_rename(target, &bytes, &meta, &xattrs)
+            .is_ok()
     }
 }
 

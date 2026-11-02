@@ -2,7 +2,7 @@ schema_version = 1
 id = "shared.power"
 scope = "shared"
 title = "Power"
-description = "Power management. The profile comes from the power-profiles-daemon over the system bus when it is running; the rest is served by the mock value source."
+description = "Power management. The profile comes from the power-profiles-daemon over the system bus when it is running; switching it is a runtime change the service does not document as persisting across restarts. The rest is served by the mock value source."
 category = "Power"
 order = 40
 
@@ -13,7 +13,7 @@ level = "partial"
 [[settings]]
 id = "profile"
 title = "Power profile"
-description = "Balanced, performance or power-saver. The real daemon runs on the system bus, which Licoman does not probe yet."
+description = "Balanced, performance or power-saver, read live from the power-profiles service. Only profiles the service actually offers appear here; switching is a runtime change."
 keywords = ["performance", "battery"]
 type = "enum"
 control = "dropdown"
@@ -227,6 +227,24 @@ service = "org.freedesktop.UPower.PowerProfiles"
 path = "/org/freedesktop/UPower/PowerProfiles"
 interface = "org.freedesktop.UPower.PowerProfiles"
 property = "Profiles"
+
+
+[[settings]]
+id = "performance_degraded"
+title = "Performance degraded"
+description = "Reported by the power-profiles service when the performance profile runs in a degraded mode (for example the device sits on a lap or runs hot). Empty means not degraded."
+keywords = ["performance", "thermal", "hot"]
+type = "string"
+control = "read_only"
+policy = "read_only"
+group = "Profiles"
+order = 3
+[settings.backend]
+kind = "dbus"
+service = "org.freedesktop.UPower.PowerProfiles"
+path = "/org/freedesktop/UPower/PowerProfiles"
+interface = "org.freedesktop.UPower.PowerProfiles"
+property = "PerformanceDegraded"
 
 [[settings]]
 id = "daemon_status"

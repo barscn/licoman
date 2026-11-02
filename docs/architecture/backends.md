@@ -158,3 +158,21 @@ Fixtures live under `tests/fixtures/` (`discovery/schemas`, `gsettings/`,
 `alacritty/`); the dconf fixture databases were compiled once at authoring
 time with `dconf compile` and are committed read-only test data. Running
 the app or the test suite never touches real dotfiles or services.
+
+## Phase 07 — write-capable backends (summary)
+
+The read backends above gained write counterparts behind the Phase 06
+engine; the full contract lives in `write-engine.md`. Summary:
+
+| Family | Read (Phase 05) | Write (Phase 07) | Verification |
+|---|---|---|---|
+| `file` (Alacritty TOML) | self-contained GVDB/`toml_edit` parser, import merge | same approved-root resolution, `toml_edit` minimal patch, backups, atomic staging, xattr/ACL preserve-or-refuse (D53), version-validated options (D50) | re-read through the same read path |
+| `gsettings` | self-contained GVDB schema/dconf parse | **native** libgio API (D51): typed set coerced to the schema's variant type + range check, real `g_settings_reset`, desktop gate fail-closed | native readback after `g_settings_sync()` |
+| `dbus` (PowerProfiles) | zbus blocking client, passive name probing | typed `Properties.Set` (D52), honest `Unknown` persistence | property readback through the same endpoint |
+| `mock` | declared defaults | in-memory (unchanged) | store readback |
+
+Live-state extras: the GSettings read path is mirrored by a **native change
+watcher** (gio `changed` signals on a dedicated thread) feeding the same
+debounced refresh pass as the filesystem watcher; Alacritty rows surface
+the detected version in Source details; the PowerProfiles reader surfaces
+`PerformanceDegraded` and the profile-holds count.

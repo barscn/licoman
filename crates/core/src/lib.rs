@@ -34,6 +34,7 @@ pub mod command;
 pub mod descriptor;
 pub mod discovery;
 pub mod error;
+pub mod hyprland;
 pub mod log;
 pub mod mock;
 pub mod model;

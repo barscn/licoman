@@ -73,7 +73,7 @@ impl ProbeResult {
 /// One backend over a set of settings. Implementations must be deterministic
 /// enough for tests; `Immediate` reads run on the UI thread, `Background`
 /// reads run on background executors.
-pub trait Provider {
+pub trait Provider: Send + Sync {
     /// Stable provider identifier (used in logs and diagnostics).
     fn id(&self) -> &'static str;
 

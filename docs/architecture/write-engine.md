@@ -145,3 +145,52 @@ operation log, key removal, and absent-key insertion.
 - The Applications window renders statuses but hosts no apply bar; staged
   edits apply from the main window (both windows share the store and stay
   synchronized through the same events).
+
+## Phase 07 — the live write path (D49–D53)
+
+The fixture-only boundary is replaced by **one engine with identical gates
+everywhere** (D49): live providers carry a real engine (file over the live
+approved roots with backups under `$XDG_DATA_HOME/licoman/backups`, service
+over the real zbus client, GSettings over the native API); fixture engines
+(demos/tests) keep injected roots and fakes. A write still requires an
+attached engine + core-derived policy + engine value gate + explicit user
+Apply/Confirm. `cargo test`/CI never construct a live engine.
+
+- **GSettings writes** (`write/gsettings_write.rs`, D51): native API only —
+  typed `set_value` coerced to the schema's own variant type and
+  range-checked against the schema before any call; `reset` uses
+  `g_settings_reset` (the platform's real reset semantics); verification
+  reads back through the same native transport, after an explicit
+  `g_settings_sync()` — dconf-level writes are client-queued, and without
+  the sync the readback would verify the client-local view instead of the
+  service (found during the live verification; see
+  `docs/live-testing/PHASE_07_LIVE_CHECKLIST.md`). A fail-closed **desktop
+  gate** (fed from discovery) refuses writes outside a GNOME session even
+  when schemas are installed.
+- **Alacritty version gate** (`read/alacritty.rs`, D50): every option
+  requires a detected TOML-era version (≥ 0.13.0); an undetectable version
+  disables writes (fail-closed); legacy YAML-only setups are a distinct
+  honest unavailable state. Enforced in the read path's `write_support`
+  (drives the UI) and re-enforced by the engine before any I/O.
+- **xattr/ACL preserve-or-refuse** (`write/file_write.rs`, D53): extended
+  attributes are read before staging and re-applied to the staged file;
+  any failure refuses the write before the rename with the original
+  untouched. POSIX ACLs are xattrs, so this closes the Phase 06 gate.
+- **PowerProfiles writes** (`read/dbus.rs` + `write/service_write.rs`,
+  D52): typed `Properties.Set` on the passively probed endpoint,
+  readback-verified; persistence is reported `Unknown` because the
+  interface documents no persistence guarantee.
+
+## Known limitations (updated for Phase 07)
+
+- Live Alacritty writes require Alacritty ≥ 0.13 installed; the key
+  `shell`/`working_directory` stay mock-bound (moved to `terminal.shell` in
+  0.14 — one binding cannot be safe across versions).
+- PowerProfiles: profile **holds** are surfaced as a diagnostics count only;
+  the Hold()/Release() client API is out of scope.
+- GSettings writes require a positively identified GNOME session (the gate
+  is deliberately closed on unknown desktops).
+- No multi-file atomicity (fundamentally unavailable; disclosed per row).
+- The Applications window renders statuses but hosts no apply bar; staged
+  edits apply from the main window (both windows share the store and stay
+  synchronized through the same events).

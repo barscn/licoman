@@ -198,6 +198,23 @@ pub fn preferences_path() -> PathBuf {
     config_dir().join("preferences.toml")
 }
 
+/// Resolve the Licoman data directory: `$XDG_DATA_HOME/licoman`, falling
+/// back to `$HOME/.local/share/licoman` per the XDG Base Directory
+/// Specification. Hosts the write engine's bounded private backups (D48).
+pub fn data_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+    {
+        return dir.join("licoman");
+    }
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
+        .join(".local/share")
+        .join("licoman")
+}
+
 fn config_dir_for(xdg: Option<PathBuf>, home: Option<PathBuf>) -> PathBuf {
     if let Some(dir) = xdg
         && dir.is_absolute()

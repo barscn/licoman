@@ -2,7 +2,7 @@ schema_version = 1
 id = "desktop.gnome.interface"
 scope = "desktop"
 title = "GNOME Interface"
-description = "Appearance and behavior settings provided by GNOME. The module is hidden unless a GNOME session and the GSettings schema database are detected; this build never writes it."
+description = "Appearance and behavior settings provided by GNOME. The module is hidden unless a GNOME session and the GSettings schema database are detected; writes use the native GSettings API and are refused outside a GNOME session."
 category = "Appearance"
 order = 30
 docs_url = "https://docs.gtk.org/gio/class.Settings.html"
@@ -14,7 +14,7 @@ required_backends = ["gsettings"]
 [support]
 maintainer = "Licoman maintainers"
 tested = ["GNOME 45+"]
-level = "read_only"
+level = "partial"
 
 [[settings]]
 id = "clock.show_weekday"

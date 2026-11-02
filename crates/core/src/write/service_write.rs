@@ -464,3 +464,41 @@ impl crate::read::dbus::PowerProfilesClient for FakeServiceClient {
         self.current(&owned, name)
     }
 }
+
+/// The real zbus write client (Phase 07, Integration C; decision D52): the
+/// same endpoint probing as reads, typed `Properties.Get`/`Properties.Set`
+/// calls, and an honest persistence classification — the PowerProfiles
+/// interface documents **no** persistence guarantee for `ActiveProfile`, so
+/// this build reports `Unknown` rather than promising either way.
+impl ServiceWriteClient for crate::read::dbus::ZBusPowerProfilesClient {
+    fn get(
+        &self,
+        endpoint: &ServiceEndpoint,
+        property: &str,
+    ) -> Result<PropertyValue, ClientError> {
+        self.property(
+            (&endpoint.service, &endpoint.path, &endpoint.interface),
+            property,
+        )
+    }
+
+    fn set(
+        &self,
+        endpoint: &ServiceEndpoint,
+        property: &str,
+        value: PropertyValue,
+    ) -> Result<(), ClientError> {
+        self.set_property(
+            (&endpoint.service, &endpoint.path, &endpoint.interface),
+            property,
+            &value,
+        )
+    }
+
+    fn persistence(&self, _endpoint: &ServiceEndpoint, _property: &str) -> Persistence {
+        // The interface documentation promises nothing about persistence
+        // across restarts (07 Integration C: "No promise of persistence
+        // across reboot unless the service guarantees it").
+        Persistence::Unknown
+    }
+}

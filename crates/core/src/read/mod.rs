@@ -22,6 +22,7 @@ use crate::error::LicomanError;
 use crate::modules::def::BackendBinding;
 use crate::value::SettingValue;
 
+pub mod alacritty;
 pub mod dbus;
 pub mod file;
 pub mod gsettings;
