@@ -326,9 +326,9 @@ Phase 07 matrix coverage (new `write::phase07_matrix_tests` + suites):
 **CI impact:** the core job now installs `libglib2.0-dev pkg-config` (the
 native GSettings backend); the workspace job adds `libglib2.0-dev` to its
 existing apt list. No test touches a real dconf database; the live harness
-is ignored by default. **CI outcome for this phase is unverified until
-push** (no `gh` CLI; check the Actions tab after the user pushes and
-record the result in the Phase 08 report if it failed).
+is ignored by default. **CI verified success after the push** (user asked
+to commit and push; run `41542034622` for `83ccba2` completed success —
+both jobs, core headless and workspace gpui).
 
 **Carried over, now closed:** the Phase 06 CI outcome was verified at the
 start of this session — run `41241062646` for `94eb2b5` completed
@@ -419,7 +419,6 @@ Known gaps / carried-over gates (all disclosed):
   valid for a future session.
 - **Interactive dialog walkthroughs** remain human gates (no input
   injector).
-- **CI outcome for this phase is unverified until push** (§4).
 - PowerProfiles **holds** are surfaced as a count only; the Hold()/Release
   client API is out of scope.
 
