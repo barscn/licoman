@@ -11,6 +11,7 @@ use crate::modules::def::BackendBinding;
 use crate::read::dbus::DBusReadBackend;
 use crate::read::file::FileReadBackend;
 use crate::read::gsettings::GSettingsReadBackend;
+use crate::read::xfconf::XfconfReadBackend;
 use crate::read::{ReadResult, SettingsReadBackend, SupportState};
 
 /// Shared handle to the router (the provider and the watchers clone it).
@@ -23,15 +24,17 @@ struct Inner {
     gsettings: GSettingsReadBackend,
     file: FileReadBackend,
     dbus: DBusReadBackend,
+    xfconf: XfconfReadBackend,
 }
 
 impl BackendRouter {
-    /// Production router: all three backends built from the environment.
+    /// Production router: all backends built from the environment.
     pub fn live() -> Self {
         Self::new(
             GSettingsReadBackend::from_env(),
             FileReadBackend::from_env(),
             DBusReadBackend::live(),
+            XfconfReadBackend::live(),
         )
     }
 
@@ -40,12 +43,14 @@ impl BackendRouter {
         gsettings: GSettingsReadBackend,
         file: FileReadBackend,
         dbus: DBusReadBackend,
+        xfconf: XfconfReadBackend,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 gsettings,
                 file,
                 dbus,
+                xfconf,
             }),
         }
     }
@@ -67,6 +72,7 @@ impl BackendRouter {
             BackendBinding::GSettings { .. } => Ok(&inner.gsettings),
             BackendBinding::File { .. } => Ok(&inner.file),
             BackendBinding::DBus { .. } => Ok(&inner.dbus),
+            BackendBinding::Xfconf { .. } => Ok(&inner.xfconf),
         }
     }
 
@@ -92,6 +98,11 @@ impl BackendRouter {
             BackendBinding::Mock => SupportState::Available,
             BackendBinding::File { .. } => self.inner.file.write_support(binding),
             BackendBinding::GSettings { .. } | BackendBinding::DBus { .. } => self.probe(binding),
+            // Explicitly read-only backend (Phase 08): presence is not
+            // writability. The engine refuses the write target too.
+            BackendBinding::Xfconf { .. } => SupportState::Unavailable {
+                reason: "Licoman reads Xfconf channels but cannot change them yet.".into(),
+            },
         }
     }
 
@@ -129,6 +140,7 @@ impl BackendRouter {
         paths.extend(self.inner.gsettings.watch_paths());
         paths.extend(self.inner.file.watch_paths());
         paths.extend(self.inner.dbus.watch_paths());
+        paths.extend(self.inner.xfconf.watch_paths());
         paths.sort();
         paths.dedup();
         paths

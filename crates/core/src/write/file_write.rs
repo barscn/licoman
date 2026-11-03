@@ -144,6 +144,7 @@ impl FileWriteBackend {
         backend.sweep_stale_temps(&backend.backup_root);
         backend.sweep_stale_temps(backend.read.config_home());
         backend.sweep_stale_temps(&backend.read.config_home().join("alacritty"));
+        backend.sweep_stale_temps(&backend.read.config_home().join("mpv"));
         backend
     }
 
@@ -213,7 +214,7 @@ impl FileWriteBackend {
         // --- 3: revision + semantic conflict check -------------------------
         self.check_preconditions(request, &probe, &key_path)?;
 
-        // --- 4: parse the original ---------------------------------------
+        // --- 4: parse the original (per grammar) ---------------------------
         let original_bytes =
             crate::read::read_bounded(&edit_path, MAX_CONFIG_BYTES).map_err(|error| {
                 io_error_to_licoman(&error, "re-reading the original before writing")
@@ -226,48 +227,63 @@ impl FileWriteBackend {
                 format!("{}: {error}", edit_path.display()),
             )
         })?;
-        let mut document = original_text.parse::<DocumentMut>().map_err(|error| {
-            LicomanError::new(
-                ErrorKind::WriteFailed,
-                "The configuration file no longer parses as TOML, so the change \
-                 was not applied. Nothing was modified.",
-                format!("{}: {error}", edit_path.display()),
-            )
-        })?;
 
-        // --- 5: minimum-key patch, formatting preserved --------------------
-        match &request.change {
-            Change::Set(value) => {
-                let segments: Vec<&str> = key_path.split('.').collect();
-                set_dotted_key(
-                    document.as_table_mut(),
-                    &segments,
-                    setting_value_to_toml(value).ok_or_else(|| {
-                        LicomanError::new(
-                            ErrorKind::Validation,
-                            "This value's type cannot be represented in the configuration.",
-                            format!("unsupported value {value:?} for {}", request.setting_id),
-                        )
-                    })?,
+        // --- 5: minimum-key patch, formatting preserved (per grammar) ------
+        let is_mpv = matches!(
+            &binding,
+            BackendBinding::File {
+                format: crate::modules::def::FileFormat::MpvConf,
+                ..
+            }
+        );
+        let patched = if is_mpv {
+            // mpv grammar: patch the single top-level entry line, preserve
+            // every other byte.
+            let staged = mpv_patch_text(original_text, &key_path, &request.change, request)?;
+            validate_staged_mpv(&staged, &key_path, &request.change, request)?;
+            staged
+        } else {
+            let mut document = original_text.parse::<DocumentMut>().map_err(|error| {
+                LicomanError::new(
+                    ErrorKind::WriteFailed,
+                    "The configuration file no longer parses as TOML, so the change \
+                     was not applied. Nothing was modified.",
+                    format!("{}: {error}", edit_path.display()),
                 )
-                .map_err(|technical| {
-                    LicomanError::new(
-                        ErrorKind::WriteFailed,
-                        "The configuration could not be edited at the requested key. \
-                         Nothing was modified.",
-                        format!("{}: {technical}", edit_path.display()),
+            })?;
+            match &request.change {
+                Change::Set(value) => {
+                    let segments: Vec<&str> = key_path.split('.').collect();
+                    set_dotted_key(
+                        document.as_table_mut(),
+                        &segments,
+                        setting_value_to_toml(value).ok_or_else(|| {
+                            LicomanError::new(
+                                ErrorKind::Validation,
+                                "This value's type cannot be represented in the configuration.",
+                                format!("unsupported value {value:?} for {}", request.setting_id),
+                            )
+                        })?,
                     )
-                })?;
+                    .map_err(|technical| {
+                        LicomanError::new(
+                            ErrorKind::WriteFailed,
+                            "The configuration could not be edited at the requested key. \
+                             Nothing was modified.",
+                            format!("{}: {technical}", edit_path.display()),
+                        )
+                    })?;
+                }
+                Change::RemoveOverride => {
+                    let segments: Vec<&str> = key_path.split('.').collect();
+                    remove_dotted_key(document.as_table_mut(), &segments);
+                }
             }
-            Change::RemoveOverride => {
-                let segments: Vec<&str> = key_path.split('.').collect();
-                remove_dotted_key(document.as_table_mut(), &segments);
-            }
-        }
-
-        // --- validate the patched document before anything touches disk ---
-        let patched = document.to_string();
-        validate_staged(&patched, &key_path, &request.change, request)?;
+            // --- validate the patched document before anything touches disk ---
+            let patched = document.to_string();
+            validate_staged(&patched, &key_path, &request.change, request)?;
+            patched
+        };
 
         if patched == original_text {
             // The desired end state already holds (e.g. removing an override
@@ -904,6 +920,108 @@ fn setting_value_to_toml(value: &SettingValue) -> Option<Value> {
             Value::from(array)
         }
     })
+}
+
+/// Patch one **top-level** entry in an mpv configuration (Phase 08): the
+/// entry line is rewritten in place, an absent entry is inserted before the
+/// first `[profile]` header (or appended when the file has no sections), and
+/// a removal deletes the line. Every other byte of the file is preserved —
+/// profile sections, comments and whitespace included. Top-level only: a
+/// same-name key inside a profile is never touched (the read side does not
+/// see it either).
+fn mpv_patch_text(
+    original: &str,
+    key: &str,
+    change: &Change,
+    request: &ChangeRequest,
+) -> Result<String, LicomanError> {
+    use crate::read::mpv::{find_top_level_index, top_level_insert_index};
+    let raw_lines: Vec<&str> = original.lines().collect();
+    let mut out: Vec<String> = raw_lines.iter().map(|line| line.to_string()).collect();
+    match change {
+        Change::Set(value) => {
+            let conf_text = crate::read::mpv::value_to_conf_text(value).ok_or_else(|| {
+                LicomanError::new(
+                    ErrorKind::Validation,
+                    "This value's type cannot be represented in an mpv configuration.",
+                    format!("unsupported value {value:?} for {}", request.setting_id),
+                )
+            })?;
+            let line = format!("{key}={conf_text}");
+            match find_top_level_index(&raw_lines, key) {
+                Some(index) => out[index] = line,
+                None => match top_level_insert_index(&raw_lines) {
+                    Some(index) => out.insert(index, line),
+                    None => out.push(line),
+                },
+            }
+        }
+        Change::RemoveOverride => {
+            if let Some(index) = find_top_level_index(&raw_lines, key) {
+                out.remove(index);
+            }
+            // Removing an absent key is a no-op: the desired end state
+            // already holds (the caller reports "no change needed").
+        }
+    }
+    let mut patched = out.join("\n");
+    if original.ends_with('\n') && !patched.is_empty() {
+        patched.push('\n');
+    }
+    Ok(patched)
+}
+
+/// Validate the staged mpv configuration before anything touches disk: the
+/// key must now hold the requested value text (or be absent for a removal),
+/// parsed with the same grammar the read side uses.
+fn validate_staged_mpv(
+    patched: &str,
+    key: &str,
+    change: &Change,
+    request: &ChangeRequest,
+) -> Result<(), LicomanError> {
+    use crate::read::mpv::{MpvLine, classify_raw_line, find_top_level_index};
+    let raw_lines: Vec<&str> = patched.lines().collect();
+    let expected = match change {
+        Change::Set(value) => crate::read::mpv::value_to_conf_text(value).ok_or_else(|| {
+            LicomanError::new(
+                ErrorKind::Validation,
+                "This value's type cannot be represented in an mpv configuration.",
+                format!("unsupported value {value:?} for {}", request.setting_id),
+            )
+        })?,
+        Change::RemoveOverride => {
+            if find_top_level_index(&raw_lines, key).is_some() {
+                return Err(LicomanError::new(
+                    ErrorKind::WriteFailed,
+                    "The staged configuration still holds the override; the change was not \
+                     applied. Nothing was modified.",
+                    format!("{}: staged key {key:?} still present", request.setting_id),
+                ));
+            }
+            return Ok(());
+        }
+    };
+    let Some(index) = find_top_level_index(&raw_lines, key) else {
+        return Err(LicomanError::new(
+            ErrorKind::WriteFailed,
+            "The staged configuration does not hold the requested value; the change was \
+             not applied. Nothing was modified.",
+            format!("{}: staged key {key:?} is missing", request.setting_id),
+        ));
+    };
+    match classify_raw_line(raw_lines[index]) {
+        MpvLine::Entry { value, .. } if value == expected => Ok(()),
+        other => Err(LicomanError::new(
+            ErrorKind::WriteFailed,
+            "The staged configuration does not hold the requested value; the change was \
+             not applied. Nothing was modified.",
+            format!(
+                "{}: staged key {key:?} is {other:?}, expected {key}={expected}",
+                request.setting_id
+            ),
+        )),
+    }
 }
 
 /// `abc.def` → `abc_def` for backup directory names (never a path).

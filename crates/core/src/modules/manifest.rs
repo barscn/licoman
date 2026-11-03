@@ -347,13 +347,15 @@ fn validate_compatibility(compat: &super::def::Compatibility, issues: &mut Vec<M
             || backend.starts_with("config:")
             || backend.starts_with("package-manager:")
             || backend == "dbus-session"
-            || backend == "gsettings-schemas";
+            || backend == "gsettings-schemas"
+            || backend == "xfconf";
         if !known {
             issues.push(ManifestIssue::warning(
                 IssueLocation::Field("required_backends"),
                 format!(
                     "backend requirement {backend:?} is not a known capability id or kind alias \
-                     (gsettings, dbus, config:*, package-manager:*); it will simply not match"
+                     (gsettings, dbus, xfconf, config:*, package-manager:*); it will simply not \
+                     match"
                 ),
             ));
         }
@@ -849,7 +851,10 @@ fn validate_backend(def: &ModuleDefinition, setting: &SettingDefinition) -> Vec<
             }
         }
         BackendBinding::File {
-            path, format, key, ..
+            path,
+            format,
+            key,
+            resolution,
         } => {
             if !is_safe_relative_path(path) {
                 issues.push(err(
@@ -862,9 +867,19 @@ fn validate_backend(def: &ModuleDefinition, setting: &SettingDefinition) -> Vec<
             }
             if !matches!(
                 format,
-                FileFormat::Toml | FileFormat::Json | FileFormat::Keyfile
+                FileFormat::Toml | FileFormat::Json | FileFormat::Keyfile | FileFormat::MpvConf
             ) {
                 issues.push(err("backend", "unsupported file format".to_string()));
+            }
+            if *format == FileFormat::MpvConf
+                && !matches!(resolution, Some(crate::modules::def::FileResolution::Mpv))
+            {
+                issues.push(err(
+                    "backend",
+                    "format \"mpv_conf\" requires resolution = \"mpv\" (the mpv grammar \
+                     needs mpv's documented search paths)"
+                        .to_string(),
+                ));
             }
             if let Some(key) = key
                 && (key.trim().is_empty() || key.len() > 200 || !is_shell_safe(key))
@@ -873,6 +888,39 @@ fn validate_backend(def: &ModuleDefinition, setting: &SettingDefinition) -> Vec<
                     "backend",
                     format!(
                         "file key {key:?} must be 1–200 characters without shell metacharacters"
+                    ),
+                ));
+            }
+        }
+        BackendBinding::Xfconf { channel, property } => {
+            // Channel: an Xfconf channel identifier (lowercase words with
+            // `-`/`_`, e.g. `thunar`, `xfce4-keyboard-shortcuts`).
+            if !is_identifier(channel) {
+                issues.push(err(
+                    "backend",
+                    format!(
+                        "xfconf channel {channel:?} must be a lowercase identifier \
+                         (letters, digits, `.`, `-`, `_`)"
+                    ),
+                ));
+            }
+            // Property: the daemon's `/`-rooted property path (e.g.
+            // `/misc-single-click`). Bounded, shell-safe, no `..` segments.
+            let valid_property = property.len() >= 2
+                && property.len() <= 200
+                && property.starts_with('/')
+                && is_shell_safe(property)
+                && !property.contains("..")
+                && property
+                    .split('/')
+                    .skip(1)
+                    .all(|segment| !segment.is_empty() && segment != ".");
+            if !valid_property {
+                issues.push(err(
+                    "backend",
+                    format!(
+                        "xfconf property {property:?} must be a `/`-rooted property path \
+                         without empty or `..` segments (e.g. `/misc-single-click`)"
                     ),
                 ));
             }

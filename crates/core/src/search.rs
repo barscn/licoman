@@ -105,6 +105,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use super::*;
     use crate::descriptor::{ApplyMode, Control, SettingDescriptor};
     use crate::value::SettingType;
@@ -152,6 +154,95 @@ mod tests {
                 &["borders", "tiling"],
             ),
         ]
+    }
+
+    /// Phase 08 scale gate: search latency over 1,000+ synthetic settings
+    /// and 100+ synthetic apps. Asserts a generous bound (CI stability) and
+    /// prints the measured percentiles for the handoff report (the plan's
+    /// target is p95 < 100 ms on reference hardware — the actual figures
+    /// are recorded per run, never invented).
+    #[test]
+    fn scale_search_latency_1000_settings_100_apps() {
+        let mut descriptors = Vec::new();
+        // 100 shared modules x 10 settings (1,000 settings) + 120 app
+        // modules x 2 settings (240) = 1,240 synthetic descriptors.
+        for module in 0..100 {
+            for index in 0..10 {
+                descriptors.push(SettingDescriptor::new(
+                    format!("shared.scale.{module:03}.setting_{index:02}"),
+                    Scope::Shared,
+                    "ScaleCatalog",
+                    format!("Scale setting {module:03}/{index:02}"),
+                    "Synthetic scale-catalog setting; mock-backed declared default.",
+                    crate::value::SettingType::Bool,
+                    Control::Switch,
+                ));
+            }
+        }
+        for module in 0..120 {
+            for index in 0..2 {
+                descriptors.push(SettingDescriptor::new(
+                    format!("app.scale.{module:03}.option_{index:02}"),
+                    Scope::Application,
+                    "ScaleApps",
+                    format!("Scale option {module:03}/{index:02}"),
+                    "Synthetic application setting; mock-backed declared default.",
+                    crate::value::SettingType::Bool,
+                    Control::Switch,
+                ));
+            }
+        }
+        assert_eq!(descriptors.len(), 1240);
+
+        let build_started = Instant::now();
+        let index = SearchIndex::build(descriptors.iter());
+        let build_elapsed = build_started.elapsed();
+
+        // Realistic query mix: prefixes, mid-word terms, ids, app titles,
+        // misses.
+        let queries = [
+            "scale setting",
+            "scale option",
+            "setting 0",
+            "option 1",
+            "ScaleCatalog",
+            "ScaleApps",
+            "shared.scale",
+            "app.scale",
+            "setting 037",
+            "option 119",
+            "synthetic",
+            "zzz-no-such-term",
+        ];
+        let runs = 3;
+        let mut per_query: Vec<Duration> = Vec::new();
+        for _ in 0..runs {
+            for query in queries {
+                let started = Instant::now();
+                let hits = index.search(query);
+                let elapsed = started.elapsed();
+                assert!(
+                    !hits.is_empty() || query == "zzz-no-such-term",
+                    "query {query:?} unexpectedly matched nothing"
+                );
+                per_query.push(elapsed);
+            }
+        }
+        per_query.sort();
+        let p50 = per_query[per_query.len() / 2];
+        let p95 = per_query[(per_query.len() as f64 * 0.95) as usize];
+        println!(
+            "scale search: index build {:?}; {} queries x {runs} runs; p50 {:?}; p95 {:?}; max {:?}",
+            build_elapsed,
+            queries.len(),
+            p50,
+            p95,
+            per_query[per_query.len() - 1]
+        );
+        // Generous CI bound: the plan's p95 target is 100 ms on reference
+        // hardware; a 50x multiple keeps the assertion stable everywhere.
+        assert!(p95 < Duration::from_millis(100) * 50);
+        assert!(build_elapsed < Duration::from_secs(10));
     }
 
     #[test]

@@ -146,6 +146,7 @@ pub struct AppState {
     /// Held for the process lifetime: native GSettings change notifications
     /// (gio signals; 07 Integration B). None outside a live environment.
     gsettings_watcher: Option<crate::gsettings_watch::GSettingsWatcher>,
+    xfconf_watcher: Option<crate::xfconf_watch::XfconfWatcher>,
     /// Bumped per background read pass; stale results must not publish.
     reads_generation: u64,
     /// Bumped per write pass; stale publishes must not land.
@@ -175,6 +176,7 @@ impl AppState {
             environment_watcher: None,
             settings_watcher: None,
             gsettings_watcher: None,
+            xfconf_watcher: None,
             reads_generation: 0,
             apply_generation: 0,
             reads_fixture_backed: false,
@@ -265,6 +267,7 @@ impl AppState {
         self.schedule_background_reads(cx);
         self.ensure_settings_watcher(cx);
         self.ensure_gsettings_watcher(cx);
+        self.ensure_xfconf_watcher(cx);
     }
 
     /// Schedule one background read pass over every Background-latency
@@ -396,6 +399,26 @@ impl AppState {
         }
         if let Some(watcher) = crate::gsettings_watch::start(cx.weak_entity(), keys, cx) {
             self.gsettings_watcher = Some(watcher);
+        }
+    }
+
+    /// Attach (or drop) the Xfconf signal watcher based on whether any
+    /// applicable setting is xfconf-backed (Phase 08). The subscription is
+    /// interface-wide; the debounced refresh re-reads only the applicable
+    /// settings.
+    pub fn ensure_xfconf_watcher(&mut self, cx: &mut Context<Self>) {
+        if self.environment.demo_locked {
+            return;
+        }
+        if !self.module_provider.has_xfconf_settings() {
+            self.xfconf_watcher = None;
+            return;
+        }
+        if self.xfconf_watcher.is_some() {
+            return; // interface-wide subscription needs no per-key restart
+        }
+        if let Some(watcher) = crate::xfconf_watch::start(cx.weak_entity(), cx) {
+            self.xfconf_watcher = Some(watcher);
         }
     }
 

@@ -10,6 +10,8 @@ pub mod app_state;
 pub mod environment_watch;
 pub mod gsettings_watch;
 pub mod settings_watch;
+pub mod startup;
 pub mod theme;
 pub mod ui;
 pub mod windows;
+pub mod xfconf_watch;

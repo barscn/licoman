@@ -1,0 +1,113 @@
+schema_version = 1
+id = "desktop.gnome.peripherals"
+scope = "desktop"
+title = "GNOME Peripherals"
+description = "Keyboard, mouse and touchpad behaviour provided by GNOME's desktop.peripherals schemas. Contributed as a manifest-only module: no Licoman Rust code was needed. Writes use the native GSettings API behind the GNOME desktop gate and are refused outside a GNOME session, exactly like every other GSettings module."
+category = "Peripherals"
+order = 31
+docs_url = "https://docs.gtk.org/gsettings/"
+
+[compatibility]
+desktops = ["GNOME"]
+required_backends = ["gsettings"]
+
+[support]
+maintainer = "Licoman maintainers"
+tested = ["GNOME 45+ schemas (org.gnome.desktop.peripherals)"]
+level = "partial"
+
+[[settings]]
+id = "keyboard.repeat"
+title = "Key repeat"
+description = "Repeat held-down keys."
+keywords = ["keyboard", "repeat", "typing"]
+type = "boolean"
+control = "switch"
+policy = "immediate"
+default = true
+group = "Keyboard"
+order = 1
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.peripherals.keyboard"
+key = "repeat"
+
+[[settings]]
+id = "mouse.natural_scroll"
+title = "Natural scrolling (mouse)"
+description = "Scroll in the direction of the finger movement for mice with a wheel."
+keywords = ["mouse", "scroll", "natural"]
+type = "boolean"
+control = "switch"
+policy = "immediate"
+default = false
+group = "Mouse"
+order = 2
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.peripherals.mouse"
+key = "natural-scroll"
+
+[[settings]]
+id = "mouse.left_handed"
+title = "Left-handed mouse"
+description = "Swap the primary and secondary mouse buttons."
+keywords = ["mouse", "left handed", "buttons"]
+type = "boolean"
+control = "switch"
+policy = "immediate"
+default = false
+group = "Mouse"
+order = 3
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.peripherals.mouse"
+key = "left-handed"
+
+[[settings]]
+id = "touchpad.tap_to_click"
+title = "Tap to click (touchpad)"
+description = "Tap the touchpad to click."
+keywords = ["touchpad", "tap", "click"]
+type = "boolean"
+control = "switch"
+policy = "immediate"
+default = true
+group = "Touchpad"
+order = 4
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.peripherals.touchpad"
+key = "tap-to-click"
+
+[[settings]]
+id = "touchpad.natural_scroll"
+title = "Natural scrolling (touchpad)"
+description = "Scroll in the direction of the finger movement."
+keywords = ["touchpad", "scroll", "natural"]
+type = "boolean"
+control = "switch"
+policy = "immediate"
+default = true
+group = "Touchpad"
+order = 5
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.peripherals.touchpad"
+key = "natural-scroll"
+
+[[settings]]
+id = "touchpad.disable_while_typing"
+title = "Disable while typing (touchpad)"
+description = "Ignore touchpad input while typing to avoid stray cursor jumps."
+keywords = ["touchpad", "typing", "palm"]
+type = "boolean"
+control = "switch"
+policy = "immediate"
+default = true
+group = "Touchpad"
+order = 6
+[settings.backend]
+kind = "gsettings"
+schema = "org.gnome.desktop.peripherals.touchpad"
+key = "disable-while-typing"

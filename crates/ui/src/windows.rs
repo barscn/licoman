@@ -29,7 +29,10 @@ pub fn window_options(size: Size<Pixels>, min: Size<Pixels>, title: &'static str
             traffic_light_position: None,
         }),
         window_min_size: Some(min),
-        app_id: Some("licoman".into()),
+        // The AppStream/GitHub-reserved namespace (io.github.<user>) —
+        // matches the desktop file id so launchers associate windows,
+        // icons and actions correctly (docs/architecture/decisions.md D59).
+        app_id: Some("io.github.barscn.Licoman".into()),
         ..TitleBar::window_options()
     }
 }

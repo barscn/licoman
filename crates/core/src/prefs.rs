@@ -342,6 +342,31 @@ mod tests {
         );
     }
 
+    /// Phase 09 upgrade gate: a preferences file from an older release
+    /// (here: schema v0 — the pre-release shape) must migrate best-effort —
+    /// the user's theme selection is preserved, the schema gap is reported
+    /// honestly, and re-saving normalizes the file to the current schema.
+    /// There is no older release in the wild yet; this pins the contract so
+    /// the first real schema change cannot silently drop the theme.
+    #[test]
+    fn older_schema_file_migrates_and_preserves_the_theme() {
+        let old = parse_preferences("schema_version = 0\n\n[appearance]\ntheme = \"light\"\n");
+        assert_eq!(old.preferences.theme, AppearanceMode::Light);
+        assert_eq!(
+            old.diagnostics,
+            vec![LoadDiagnostic::UnsupportedSchema { found: 0 }]
+        );
+        // Saving the migrated preferences normalizes the schema version.
+        let migrated = Preferences {
+            schema_version: SCHEMA_VERSION,
+            theme: old.preferences.theme,
+        };
+        let text = serialize_preferences(&migrated);
+        let roundtrip = parse_preferences(&text);
+        assert_eq!(roundtrip.preferences, migrated);
+        assert!(roundtrip.diagnostics.is_empty());
+    }
+
     #[test]
     fn empty_file_is_corrupt_and_defaults_to_dark() {
         let loaded = parse_preferences("");

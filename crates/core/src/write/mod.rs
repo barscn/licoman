@@ -42,6 +42,10 @@ mod write_matrix_tests;
 #[path = "phase07_matrix_tests.rs"]
 mod phase07_matrix_tests;
 
+#[cfg(test)]
+#[path = "phase08_matrix_tests.rs"]
+mod phase08_matrix_tests;
+
 pub use broker::{DenyAllBroker, PrivilegeBroker};
 pub use engine::WriteEngine;
 pub use file_write::FileWriteBackend;

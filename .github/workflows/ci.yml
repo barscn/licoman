@@ -40,6 +40,11 @@ jobs:
         run: cargo clippy -p licoman-core --all-targets -- -D warnings
       - name: Tests (core)
         run: cargo test -p licoman-core
+      - name: Module manifest lint (Phase 08)
+        run: |
+          cargo build -p licoman
+          ./target/debug/licoman module validate modules/builtin/
+          ./target/debug/licoman module validate modules/examples/
 
   # Full workspace (GPUI adapter + binary). Compilation needs the same
   # system libraries upstream gpui-kit documents for Linux builds

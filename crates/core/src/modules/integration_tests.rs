@@ -333,6 +333,9 @@ key = "clock-show-weekday"
             vec![],
         ),
         crate::read::dbus::DBusReadBackend::with_client(Arc::new(AbsentService)),
+        crate::read::xfconf::XfconfReadBackend::with_client(Arc::new(
+            crate::read::xfconf::AbsentXfconfClient,
+        )),
     );
     let provider = ModuleProvider::with_router(Arc::new(Mutex::new(registry)), router);
     // The Fedora/GNOME fixture carries the gsettings capability AND the

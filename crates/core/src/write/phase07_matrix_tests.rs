@@ -496,6 +496,9 @@ key = "clock-show-weekday"
                 vec![],
             ),
             crate::read::dbus::DBusReadBackend::with_client(Arc::new(AbsentService)),
+            crate::read::xfconf::XfconfReadBackend::with_client(Arc::new(
+                crate::read::xfconf::AbsentXfconfClient,
+            )),
         );
         // The gate starts closed; `set_environment` drives it from the
         // detected session (the provider does this on every discovery ingest).

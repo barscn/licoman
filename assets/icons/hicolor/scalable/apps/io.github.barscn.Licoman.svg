@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Licoman app icon: the Quiet Control palette (dark canvas #0E1117,
+       light glyph, single accent). Drawn as a rounded square with a
+       settings-toggle monogram. -->
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#171C26"/>
+      <stop offset="1" stop-color="#0E1117"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#canvas)"/>
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="none" stroke="#2A3140" stroke-width="2"/>
+  <!-- the Li monogram: a vertical stem + a toggle track -->
+  <rect x="34" y="34" width="10" height="60" rx="5" fill="#F4F6FA"/>
+  <rect x="54" y="44" width="40" height="12" rx="6" fill="#3E63DD"/>
+  <circle cx="84" cy="50" r="9" fill="#F4F6FA"/>
+  <rect x="54" y="72" width="40" height="12" rx="6" fill="#3E63DD"/>
+  <circle cx="64" cy="78" r="9" fill="#F4F6FA"/>
+</svg>

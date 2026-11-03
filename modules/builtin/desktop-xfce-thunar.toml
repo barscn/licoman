@@ -1,0 +1,124 @@
+schema_version = 1
+id = "desktop.xfce.thunar"
+scope = "desktop"
+title = "Thunar (Xfce)"
+description = "File-manager behaviour read live from the Xfconf configuration service. The module applies wherever xfconfd is on the session bus; every row validates the actual channel and property before a value is shown. Reads are live service state — Licoman does not write Xfconf channels in this build."
+category = "Xfce"
+order = 25
+docs_url = "https://docs.xfce.org/xfce/thunar/preferences"
+
+[compatibility]
+required_backends = ["xfconf"]
+
+[support]
+maintainer = "Licoman maintainers"
+tested = ["xfconf 4.20.0 on Arch (Hyprland session, xfconfd running)"]
+level = "read_only"
+
+[[settings]]
+id = "single_click"
+title = "Single click activates items"
+description = "Open items with a single click instead of a double click. Read live from the thunar channel; applies to newly opened Thunar windows."
+keywords = ["thunar", "files", "click", "xfce"]
+type = "boolean"
+control = "read_only"
+policy = "read_only"
+restart = "app"
+group = "Behaviour"
+order = 1
+[settings.backend]
+kind = "xfconf"
+channel = "thunar"
+property = "/misc-single-click"
+
+[[settings]]
+id = "confirm_close_multiple_tabs"
+title = "Confirm closing multiple tabs"
+description = "Ask before closing a Thunar window that holds several tabs."
+keywords = ["thunar", "tabs", "confirm", "xfce"]
+type = "boolean"
+control = "read_only"
+policy = "read_only"
+restart = "app"
+group = "Behaviour"
+order = 2
+[settings.backend]
+kind = "xfconf"
+channel = "thunar"
+property = "/misc-confirm-close-multiple-tabs"
+
+[[settings]]
+id = "date_style"
+title = "Date display style"
+description = "How Thunar formats dates in the details view (stored value shown verbatim)."
+keywords = ["thunar", "date", "format", "xfce"]
+type = "enum"
+control = "read_only"
+policy = "read_only"
+restart = "app"
+group = "Display"
+order = 3
+[[settings.options]]
+value = "THUNAR_DATE_STYLE_SIMPLE"
+label = "Simple"
+[[settings.options]]
+value = "THUNAR_DATE_STYLE_SHORT"
+label = "Short"
+[[settings.options]]
+value = "THUNAR_DATE_STYLE_LONG"
+label = "Long"
+[[settings.options]]
+value = "THUNAR_DATE_STYLE_ISO"
+label = "ISO 8601"
+[settings.backend]
+kind = "xfconf"
+channel = "thunar"
+property = "/misc-date-style"
+
+[[settings]]
+id = "thumbnail_frames"
+title = "Draw frames around thumbnails"
+description = "Draw a border around image thumbnails."
+keywords = ["thunar", "thumbnail", "frame", "xfce"]
+type = "boolean"
+control = "read_only"
+policy = "read_only"
+restart = "app"
+group = "Display"
+order = 4
+[settings.backend]
+kind = "xfconf"
+channel = "thunar"
+property = "/misc-thumbnail-draw-frames"
+
+[[settings]]
+id = "symbolic_icons_sidepane"
+title = "Symbolic icons in the side pane"
+description = "Use symbolic icons in Thunar's side pane."
+keywords = ["thunar", "icons", "side pane", "xfce"]
+type = "boolean"
+control = "read_only"
+policy = "read_only"
+restart = "app"
+group = "Display"
+order = 5
+[settings.backend]
+kind = "xfconf"
+channel = "thunar"
+property = "/misc-symbolic-icons-in-sidepane"
+
+[[settings]]
+id = "text_beside_icons"
+title = "Text beside icons"
+description = "Place item labels beside icons instead of below them."
+keywords = ["thunar", "icons", "layout", "xfce"]
+type = "boolean"
+control = "read_only"
+policy = "read_only"
+restart = "app"
+group = "Display"
+order = 6
+[settings.backend]
+kind = "xfconf"
+channel = "thunar"
+property = "/misc-text-beside-icons"

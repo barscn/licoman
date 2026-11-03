@@ -1130,6 +1130,9 @@ resolution = "xdg_file"
             crate::read::dbus::DBusReadBackend::with_client(Arc::new(
                 crate::read::dbus::AbsentServiceClient,
             )),
+            crate::read::xfconf::XfconfReadBackend::with_client(Arc::new(
+                crate::read::xfconf::AbsentXfconfClient,
+            )),
         ),
         engine,
     );

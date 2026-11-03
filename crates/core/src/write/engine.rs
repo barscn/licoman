@@ -153,6 +153,17 @@ impl WriteEngine {
             },
             WriteTarget::File { .. } => self.file.apply(request, descriptor),
             WriteTarget::Service { .. } => self.service.apply(request, descriptor),
+            WriteTarget::ReadOnly { kind } => Err(LicomanError::new(
+                ErrorKind::WriteFailed,
+                format!(
+                    "Licoman reads {kind} backends but cannot change them yet. Writes are \
+                     not enabled in this build. Nothing was modified."
+                ),
+                format!(
+                    "read-only write target refused for {} ({kind})",
+                    request.setting_id
+                ),
+            )),
         };
 
         let status = match &result {
@@ -219,6 +230,7 @@ impl WriteEngine {
                 let redacted = self.file.read_backend().redact_path(path);
                 format!("{redacted} :: {key}")
             }
+            WriteTarget::ReadOnly { kind } => format!("<read-only:{kind}>"),
         }
     }
 }

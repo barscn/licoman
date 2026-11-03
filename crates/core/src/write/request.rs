@@ -48,6 +48,11 @@ pub enum WriteTarget {
         endpoint: ServiceEndpoint,
         property: String,
     },
+    /// A backend family that is explicitly read-only in this build (Phase 08:
+    /// Xfconf). The engine refuses every request against it — the variant
+    /// exists so the request mapping stays total and the refusal is typed,
+    /// not a panic or a silent drop.
+    ReadOnly { kind: String },
 }
 
 impl WriteTarget {
@@ -58,6 +63,10 @@ impl WriteTarget {
             WriteTarget::File { .. } => "file",
             WriteTarget::GSettings { .. } => "gsettings",
             WriteTarget::Service { .. } => "dbus",
+            WriteTarget::ReadOnly { kind } => match kind.as_str() {
+                "xfconf" => "xfconf",
+                _ => "read-only",
+            },
         }
     }
 }
@@ -170,6 +179,11 @@ impl ChangeRequest {
                 },
                 property: property.clone().unwrap_or_default(),
             },
+            // Explicitly read-only backend: the request exists only so the
+            // engine can refuse it with a typed, honest error.
+            BackendBinding::Xfconf { .. } => WriteTarget::ReadOnly {
+                kind: "xfconf".to_string(),
+            },
         };
         let restart = match binding {
             // A config file edit takes effect when the owning app restarts.
@@ -200,7 +214,7 @@ impl ChangeRequest {
 }
 
 impl RestartEffect {
-    fn from_target(target: &str) -> Self {
+    pub(crate) fn from_target(target: &str) -> Self {
         // The manifest's restart field names the affected target in plain
         // words ("the terminal", "the session"). Map known coarse targets;
         // anything else stays an honest Unknown with the declared text shown

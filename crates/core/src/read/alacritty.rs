@@ -177,7 +177,7 @@ impl AlacrittySupport {
 /// Direct exec of the documented version query — never a shell, never
 /// anything else. Any failure is [`AlacrittySupport::Unknown`].
 pub fn detect() -> AlacrittySupport {
-    match detect_binary("alacritty") {
+    match detect_binary("alacritty", VERSION_TIMEOUT) {
         Some(output) => match parse_version_output(&output) {
             Some(version) if version.at_least(TOML_ERA_MIN) => AlacrittySupport::Toml(version),
             Some(version) => AlacrittySupport::LegacyYaml(version),
@@ -189,7 +189,9 @@ pub fn detect() -> AlacrittySupport {
 
 /// Locate a binary on `PATH` and run it with `--version`, bounded. Returns
 /// the trimmed stdout. `None` on any failure (absent, spawn error, timeout).
-fn detect_binary(program: &str) -> Option<String> {
+/// Shared with the mpv detector (the same documented `--version` probe
+/// shape, direct exec, no shell).
+pub(crate) fn detect_binary(program: &str, timeout: Duration) -> Option<String> {
     let path = std::env::var_os("PATH")?;
     let dir = std::env::split_paths(&path).find(|dir| {
         let candidate = dir.join(program);
@@ -216,7 +218,7 @@ fn detect_binary(program: &str) -> Option<String> {
             let _ = tx.send(buf);
         })
         .ok()?;
-    match rx.recv_timeout(VERSION_TIMEOUT) {
+    match rx.recv_timeout(timeout) {
         Ok(output) => {
             let _ = child.wait();
             let trimmed = output.trim().to_string();
@@ -282,6 +284,9 @@ mod tests {
     fn detection_without_binary_is_unknown() {
         // A name that cannot exist on any PATH yields Unknown without
         // spawning anything and without touching the environment.
-        assert_eq!(detect_binary("licoman-no-such-binary-xyz"), None);
+        assert_eq!(
+            detect_binary("licoman-no-such-binary-xyz", VERSION_TIMEOUT),
+            None
+        );
     }
 }

@@ -162,3 +162,30 @@ real user database. Recovery was immediate and verified: native
 environment) and the approved operation was then executed cleanly with the
 real database fingerprint byte-identical before/after. Full timeline in
 `docs/handoffs/PHASE_07_REPORT.md`.
+
+---
+
+## Phase 08 addendum — Xfconf and mpv (2026-11-04)
+
+The Phase 08 expansion was reviewed against this threat model when the two
+new backend families landed; conclusions:
+
+- **New assets:** none beyond Phase 07. Xfconf rows are read-only; mpv
+  writes reuse the audited file pipeline (fingerprint conflicts, 0600
+  backups, atomic staging, readback) with a grammar-aware one-line patcher
+  validated against malformed input, external edits and profile-scoped
+  traps in fixtures.
+- **Passive probing extended:** xfconfd is D-Bus-activatable; the Xfconf
+  backend gates every call behind a passive ListNames check. Verified
+  end to end: a full application run with the daemon stopped leaves it
+  stopped (no activation, ever).
+- **The manifest grammar grew safely:** the `xfconf` binding names a channel
+  identifier and a `/`-rooted property path (shell-metacharacter and `..`
+  rejection shared with the file-key rules); `WriteTarget::ReadOnly` is a
+  typed target the engine refuses unconditionally — a manifest cannot
+  reach any new write capability.
+- **Dynamic module loading remains unimplemented** (see
+  `module-trust.md` for the review it requires); no runtime code of any
+  kind, and no GPUI JavaScript runtime, is enabled.
+- **Logs stay value-free** (the planted-secret test still passes); Xfconf
+  source details carry channel/property names and counts only.

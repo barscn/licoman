@@ -1,0 +1,98 @@
+# Maintainer: Barışcan Aslan <barscn@users.noreply.github.com>
+# Licoman — Linux Configuration Manager.
+#
+# This PKGBUILD builds from the repository tree (cargo) and installs the
+# binary, launcher, icons and AppStream metadata. It builds once against
+# the release profile; no root operations beyond the standard pacman
+# packaging step, no system state touched at build time.
+#
+# App ID convention: io.github.barscn.Licoman — the AppStream-reserved
+# io.github.<user> namespace for GitHub-hosted projects (no claimed
+# domain), per docs/architecture/decisions.md D59.
+
+pkgname=licoman
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Linux Configuration Manager — one native interface for shared, desktop, distribution and application settings"
+arch=(x86_64)
+url="https://github.com/barscn/licoman"
+license=(MIT)
+depends=(
+  gcc-libs
+  glibc
+  glib2          # libgio/libgobject: the native GSettings backend
+  fontconfig
+  libxkbcommon
+  libxkbcommon-x11
+  libx11
+  libxcb
+  vulkan-icd-loader
+  wayland
+  zstd
+  alsa-lib
+)
+makedepends=(cargo clang)
+optdepends=(
+  'mesa-vulkan-radeon: AMD GPU Vulkan driver (Mesa)'
+  'vulkan-intel: Intel GPU Vulkan driver (Mesa)'
+  'nvidia-utils: NVIDIA GPU Vulkan driver'
+  'power-profiles-daemon: power profile integration'
+  'xfconf: Xfce (Xfconf) settings integration'
+)
+source=("$pkgname-$pkgver.tar.gz")
+# The tarball is produced by `git archive` of the release tag; the sha256
+# is filled in by the release process (makepkg refuses empty checksums, so
+# the placeholder below must be replaced — a placeholder never ships).
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export CARGO_HOME="$srcdir/cargo-home"
+  cargo fetch --locked
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export CARGO_HOME="$srcdir/cargo-home"
+  export CARGO_TARGET_DIR="$srcdir/target"
+  # The makepkg-wide LTO/remap RUSTFLAGS re-partition rustc codegen units
+  # in a way that breaks the gpui/wayland-backend link (undefined
+  # wl_log_trampoline_to_rust_client under rust-lld; observed, isolated to
+  # these flags and documented in the Phase 09 report). Licoman's tested
+  # release gate is a plain `cargo build --workspace --release`, so the
+  # package builds with exactly that configuration instead of distro LTO.
+  unset CFLAGS CXXFLAGS LDFLAGS RUSTFLAGS
+  cargo build --release --locked
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export CARGO_HOME="$srcdir/cargo-home"
+  export CARGO_TARGET_DIR="$srcdir/target"
+  unset CFLAGS CXXFLAGS LDFLAGS RUSTFLAGS
+  # Headless domain tests only; GUI/gpui tests compile in the build above
+  # and the full suite runs in CI on every push.
+  cargo test --release --locked -p licoman-core
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 "$srcdir/target/release/licoman" "$pkgdir/usr/bin/licoman"
+  install -Dm644 packaging/desktop/io.github.barscn.Licoman.desktop \
+    "$pkgdir/usr/share/applications/io.github.barscn.Licoman.desktop"
+  install -Dm644 packaging/metainfo/io.github.barscn.Licoman.metainfo.xml \
+    "$pkgdir/usr/share/metainfo/io.github.barscn.Licoman.metainfo.xml"
+  _icon=assets/icons/hicolor
+  install -Dm644 "$_icon/scalable/apps/io.github.barscn.Licoman.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/io.github.barscn.Licoman.svg"
+  install -Dm644 "$_icon/128x128/apps/io.github.barscn.Licoman.png" \
+    "$pkgdir/usr/share/icons/hicolor/128x128/apps/io.github.barscn.Licoman.png"
+  install -Dm644 "$_icon/256x256/apps/io.github.barscn.Licoman.png" \
+    "$pkgdir/usr/share/icons/hicolor/256x256/apps/io.github.barscn.Licoman.png"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 NOTICES "$pkgdir/usr/share/licenses/$pkgname/NOTICES"
+  install -dm755 "$pkgdir/usr/share/doc/$pkgname"
+  install -m644 README.md docs/installation.md docs/usage.md \
+    docs/configuration-safety.md docs/compatibility.md docs/privacy.md \
+    "$pkgdir/usr/share/doc/$pkgname/"
+}

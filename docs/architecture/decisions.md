@@ -631,3 +631,105 @@ operation list, never implied by running the app or the phase.
 
 **Why:** 07 "Controlled live verification protocol" step 3: "Prefer a
 disposable test account, VM, or temporary application configuration root."
+
+## D55 — Xfconf joins as a first-class, explicitly read-only backend family
+
+**Decision:** Phase 08 adds Xfconf (the Xfce configuration service on the
+session bus) as a new manifest binding kind (`xfconf { channel, property }`)
+served by a dedicated zbus read backend — not a code-only provider like the
+Phase 07 Hyprland diagnostics. The family is **explicitly read-only**: the
+official `SetProperty` exists and xfconfd would persist it, but provenance
+and rollback for Xfconf are not proven, so every row reports the honest
+read-only reason and no write target exists (the provider refuses before
+`ChangeRequest::resolve`; the engine additionally refuses the typed
+`WriteTarget::ReadOnly` — defense in depth). Service presence is probed
+**passively** (ListNames) before any channel call: xfconfd is D-Bus
+activatable, and a naive method call would auto-start it, which Licoman
+must never do to make a setting look available (proven end to end: a full
+app run with xfconfd stopped leaves it stopped).
+
+**Why:** the Phase 08 plan names Xfconf explicitly ("official
+channel/property mechanisms and change notifications; validate actual
+channel/property presence"), capability-first selection beats per-DE
+guessing, and the read-only-first boundary mirrors the plan's "explicit
+read-only" acceptance path.
+
+## D56 — mpv is the second file-backend resolution, version-gated like Alacritty
+
+**Decision:** the file backend gains `format = "mpv_conf"`,
+`resolution = "mpv"`: the documented single user configuration
+(`$XDG_CONFIG_HOME/mpv/mpv.conf`, legacy `~/.mpv/config`), parsed with
+mpv's own `key=value` / `[profile]` grammar. Reads cover top-level keys
+only (profile-scoped same-name keys are never matched, and the diagnostics
+say so); writes patch exactly one raw line in place (or insert before the
+first section header / append), preserving every other byte, gated by the
+detected mpv version (≥ 0.33 per the upstream manual; fail-closed on
+unknown versions — the D50 pattern). The module exposes a small
+era-stable option group (volume, fullscreen, keep-open,
+save-position-on-quit) validated live against mpv 0.41.0's
+`--list-options`; the wide mock-only option list was removed rather than
+kept as a misleading UI.
+
+**Why:** Wave B prefers "small safe groups of settings over a wide but
+misleading UI"; mpv is installed on the reference machine so the whole
+read path (including the profile trap) is live-verifiable.
+
+## D57 — The settings content list is virtualized with per-row view entities
+
+**Decision:** the main window's settings content renders through gpui's
+variable-height `list` with a `ListState` owned by the window: the flat
+item list (category headers + rows) is rebuilt when the item *set* changes
+(scope, filter, registered ids), and each row is a small `SettingRowView`
+entity created once per item-set change that reads fresh store state at
+draw time (subscribed to store events so render caching cannot show stale
+rows). The row rendering moved out of `MainWindow` verbatim — the ControlSet
+is shared via `Rc<RefCell<>>` so its existing rebuild/sync triggers are
+unchanged. Only the visible range is ever drawn; scroll position survives
+unrelated re-renders and resets only when the item set changes.
+
+**Why:** the plan requires that "thousands of settings must not cause
+unnecessary allocations per frame"; the eager renderer built an element
+tree for every row of every category on every render, and the paint-phase
+`WeakEntity::update_in` shortcut for row rendering fails by design
+("entity has no current window") — per-row view entities are the
+supported gpui pattern for interactive list rows.
+
+## D58 — Scale is a first-class gate, not a screenshot story
+
+**Decision:** `LICOMAN_DEMO=scale` generates a purely mock-backed synthetic
+catalog (100 shared modules × 10 settings + 120 application modules × 2 =
+1,240 settings) through the real registry, search index and UI paths, and
+a core test measures search latency over the same shape (asserting a
+generous CI-stable bound while printing the measured percentiles for the
+handoff). The Applications-window capture flow gained title-targeted
+window selection, and the capture nav hook gained `Application/<module-id>`
+navigation.
+
+**Why:** the Phase 08 tests demand "Search across 1,000+ synthetic settings
+and 100+ synthetic apps; record latency and scroll behavior" with real
+numbers in the report, not invented ones.
+
+## D59 — The application identity is `io.github.barscn.Licoman`
+
+**Decision:** the window `app_id`, desktop-file id and AppStream id all use
+`io.github.barscn.Licoman`. The `io.github.<user>` namespace is the
+AppStream specification's reserved convention for GitHub-hosted projects —
+it is not a claimed domain and requires no owned web presence.
+
+**Why:** launchers associate windows, icons and desktop actions through the
+app id; a generic `licoman` id would collide with any other package using
+the same name, and fabricating a domain is exactly what the plan forbids.
+
+## D60 — Vulkan prerequisites are probed before the GUI starts
+
+**Decision:** the binary probes the Vulkan user-space stack (loader library
+plus at least one ICD manifest — a filesystem-only check, no device
+creation) before starting GPUI, and exits with an actionable, per-distro
+package advice plus a troubleshooting link when they are missing. A panic
+hook additionally appends the same pointer to graphics-shaped panics so a
+deeper renderer failure (broken driver) is actionable rather than raw.
+`LICOMAN_SKIP_VULKAN_CHECK=1` is the documented headless-CI escape hatch.
+
+**Why:** 09 plan §2 — "exit gracefully with an actionable diagnostic and a
+link to troubleshooting"; the common failure shapes (no loader, no driver
+manifest) are cheaply detectable without ever touching the GPU.

@@ -220,6 +220,14 @@ pub enum BackendBinding {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         resolution: Option<FileResolution>,
     },
+    /// A property in an Xfconf channel (Phase 08, Wave A.3): the Xfce
+    /// configuration service on the session bus. Data-only: a channel
+    /// identifier plus a `/`-rooted property path. Explicitly read-only in
+    /// this build — `probe` validates actual channel/property presence, the
+    /// read envelope reports the honest read-only reason, and no write
+    /// target exists (the engine refuses [`WriteTarget::ReadOnly`]).
+    #[serde(rename = "xfconf")]
+    Xfconf { channel: String, property: String },
 }
 
 /// How a `file` binding locates and merges its configuration. Closed
@@ -233,6 +241,11 @@ pub enum FileResolution {
     /// merge ("imports are loaded in order, skipping all missing files,
     /// with the importing file being loaded last").
     Alacritty,
+    /// mpv (Phase 08): the documented single user configuration
+    /// (`$XDG_CONFIG_HOME/mpv/mpv.conf`, legacy `~/.mpv/config`), parsed
+    /// with mpv's own `key=value` / `[profile]` grammar; top-level options
+    /// only. Writes are gated by the detected mpv version.
+    Mpv,
 }
 
 impl BackendBinding {
@@ -243,6 +256,7 @@ impl BackendBinding {
             BackendBinding::GSettings { .. } => "gsettings",
             BackendBinding::DBus { .. } => "dbus",
             BackendBinding::File { .. } => "file",
+            BackendBinding::Xfconf { .. } => "xfconf",
         }
     }
 
@@ -260,6 +274,9 @@ pub enum FileFormat {
     Toml,
     Json,
     Keyfile,
+    /// mpv's own `key=value` / `[profile]` grammar (Phase 08) — parsed with
+    /// the mpv rules, never TOML. Requires `resolution = "mpv"`.
+    MpvConf,
 }
 
 /// Compatibility constraints, all optional and AND-ed together

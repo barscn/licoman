@@ -27,7 +27,9 @@ pub mod dbus;
 pub mod file;
 pub mod gsettings;
 pub mod gvariant;
+pub mod mpv;
 pub mod router;
+pub mod xfconf;
 
 pub use router::BackendRouter;
 

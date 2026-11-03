@@ -195,6 +195,20 @@ impl ModuleProvider {
         })
     }
 
+    /// Whether any registered, currently-applicable setting is bound to an
+    /// Xfconf channel (drives the UI's signal watcher attachment).
+    pub fn has_xfconf_settings(&self) -> bool {
+        self.with_registry(|registry| {
+            registry.descriptors().iter().any(|descriptor| {
+                registry
+                    .setting(&descriptor.id)
+                    .is_some_and(|(_def, setting)| {
+                        matches!(setting.backend, BackendBinding::Xfconf { .. })
+                    })
+            })
+        })
+    }
+
     fn setting_error(&self, id: &str, reason: String) -> LicomanError {
         LicomanError::new(
             ErrorKind::Unavailable,
@@ -418,6 +432,17 @@ impl Provider for ModuleProvider {
                 format!("write refused for non-mock binding on {id:?}"),
             ));
         };
+        if matches!(backend, BackendBinding::Xfconf { .. }) {
+            // Explicitly read-only backend (Phase 08): the refusal happens
+            // before any request is built, and the engine refuses the target
+            // again (defense in depth).
+            return Err(LicomanError::new(
+                ErrorKind::WriteFailed,
+                "Licoman reads Xfconf channels but cannot change them yet. Writes are \
+                 not enabled in this build. Nothing was modified.",
+                format!("write refused for read-only xfconf binding on {id:?}"),
+            ));
+        }
         let descriptor = {
             let registry = self.registry.lock().expect("registry lock");
             registry
@@ -725,6 +750,9 @@ key = "clock-show-weekday"
                 vec![],
             ),
             crate::read::dbus::DBusReadBackend::with_client(Arc::new(AbsentService)),
+            crate::read::xfconf::XfconfReadBackend::with_client(Arc::new(
+                crate::read::xfconf::AbsentXfconfClient,
+            )),
         );
         let provider = ModuleProvider::with_router(registry, router);
         // The Arch/Hyprland fixture carries the synthetic schema facts

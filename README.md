@@ -4,6 +4,14 @@
 
 Built with **Rust + GPUI + GPUI Kit**. No Electron, no browser UI, no embedded web view.
 
+> **Status: Phase 09 implemented — 0.1.0-alpha.0 release candidate.**
+> Measured quality gates, Arch packaging, Vulkan diagnostics, full docs.
+> Publishing remains the maintainer's explicit action.
+
+> **Status: Phase 08 implemented** — Xfconf (read-only, live) and mpv
+> (version-gated) integrations; contributor workflow; measured 1,240-setting
+> scale. Honest support states throughout; see docs/compatibility.md.
+
 > **Status: Phase 07 (first live settings integrations) implemented.**
 > The three vertical slices are real: **Alacritty** (version-validated TOML
 > writes with xattr/ACL preserve-or-refuse), **GNOME GSettings** (native

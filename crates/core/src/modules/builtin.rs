@@ -48,6 +48,14 @@ pub const MANIFESTS: &[(&str, &str)] = &[
         include_str!("../../../../modules/builtin/desktop-gnome-interface.toml"),
     ),
     (
+        "modules/builtin/desktop-gnome-peripherals.toml",
+        include_str!("../../../../modules/builtin/desktop-gnome-peripherals.toml"),
+    ),
+    (
+        "modules/builtin/desktop-xfce-thunar.toml",
+        include_str!("../../../../modules/builtin/desktop-xfce-thunar.toml"),
+    ),
+    (
         "modules/builtin/distribution-pacman.toml",
         include_str!("../../../../modules/builtin/distribution-pacman.toml"),
     ),

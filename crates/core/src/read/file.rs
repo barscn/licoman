@@ -57,6 +57,9 @@ pub struct FileReadBackend {
     /// constructor detects it; fixture constructors inject a known state so
     /// tests never depend on the host's installed applications.
     alacritty: crate::read::alacritty::AlacrittySupport,
+    /// mpv version support on this machine (Phase 08): same injection
+    /// pattern as Alacritty.
+    mpv: crate::read::mpv::MpvSupport,
 }
 
 impl FileReadBackend {
@@ -76,6 +79,7 @@ impl FileReadBackend {
             home,
             system_roots: vec![PathBuf::from("/etc")],
             alacritty: crate::read::alacritty::detect(),
+            mpv: crate::read::mpv::detect(),
         }
     }
 
@@ -84,12 +88,16 @@ impl FileReadBackend {
             config_home,
             home,
             system_roots,
-            // Fixture/test constructor: assume a TOML-era Alacritty so the
-            // version gate is exercised only where a test deliberately
-            // changes it (D50). The live constructor detects for real.
+            // Fixture/test constructor: assume a TOML-era Alacritty and a
+            // current-era mpv so the version gates are exercised only where
+            // a test deliberately changes them (D50 / Phase 08). The live
+            // constructor detects for real.
             alacritty: crate::read::alacritty::AlacrittySupport::Toml(
                 crate::read::alacritty::AppVersion::new(0, 13, 0),
             ),
+            mpv: crate::read::mpv::MpvSupport::Supported(crate::read::mpv::AppVersion::new(
+                0, 41, 0,
+            )),
         }
     }
 
@@ -103,6 +111,17 @@ impl FileReadBackend {
         self
     }
 
+    /// Override the detected mpv support state (tests and demos).
+    pub fn with_mpv_support(mut self, support: crate::read::mpv::MpvSupport) -> Self {
+        self.mpv = support;
+        self
+    }
+
+    /// The detected/injected mpv support state (Phase 08).
+    pub fn mpv_support(&self) -> &crate::read::mpv::MpvSupport {
+        &self.mpv
+    }
+
     /// The detected/injected Alacritty support state (D50).
     pub fn alacritty_support(&self) -> &crate::read::alacritty::AlacrittySupport {
         &self.alacritty
@@ -111,7 +130,8 @@ impl FileReadBackend {
     /// Whether this binding may be **written** in this environment. Reads
     /// stay available regardless; writes are gated per option and version
     /// (07 Integration A: "unsupported versions don't show invented
-    /// controls", fail-closed on unknown versions — D50).
+    /// controls", fail-closed on unknown versions — D50; the mpv gate is
+    /// the Phase 08 counterpart).
     pub fn write_support(&self, binding: &BackendBinding) -> SupportState {
         let BackendBinding::File {
             format,
@@ -124,11 +144,39 @@ impl FileReadBackend {
                 reason: "Not a configuration-file binding.".into(),
             };
         };
+        if *format == FileFormat::MpvConf {
+            // mpv path: the version gate is family-level (every exposed
+            // option shares the era requirement); a named key is still
+            // required so a mis-declared manifest shows the honest state.
+            if key.is_none() {
+                return SupportState::Unavailable {
+                    reason: "This setting does not name a configuration key.".into(),
+                };
+            }
+            return match &self.mpv {
+                crate::read::mpv::MpvSupport::Supported(version) => {
+                    if version.at_least(crate::read::mpv::CONFIG_ERA_MIN) {
+                        SupportState::Available
+                    } else {
+                        SupportState::Unavailable {
+                            reason: format!(
+                                "This option requires mpv ≥ 0.33, but version {} was \
+                                 detected.",
+                                version.raw
+                            ),
+                        }
+                    }
+                }
+                other => SupportState::Unavailable {
+                    reason: other.describe(),
+                },
+            };
+        }
         if *format != FileFormat::Toml {
             return SupportState::Unavailable {
                 reason: format!(
-                    "This configuration is a {format:?} file. TOML configurations are \
-                     edited first; this format is recorded but not edited yet."
+                    "This configuration is a {format:?} file. TOML and mpv configurations \
+                     are edited first; this format is recorded but not edited yet."
                 ),
             };
         }
@@ -234,6 +282,11 @@ impl FileReadBackend {
         }
         candidates.dedup();
         candidates
+    }
+
+    /// mpv user-configuration candidates in the documented order (deduped).
+    fn mpv_candidates(&self) -> Vec<PathBuf> {
+        crate::read::mpv::config_candidates(&self.config_home, &self.home, &self.system_roots)
     }
 
     /// Parse a TOML file into a `toml_edit` document with all failure modes
@@ -483,12 +536,15 @@ impl FileReadBackend {
                 format!("file backend got binding kind {:?}", binding.kind_name()),
             ));
         };
+        if *format == FileFormat::MpvConf {
+            return self.probe_mpv_key(binding, descriptor);
+        }
         if *format != FileFormat::Toml {
             return Err(LicomanError::new(
                 ErrorKind::Unavailable,
                 format!(
-                    "This configuration is a {format:?} file. Licoman reads TOML configurations \
-                     first; this format is recorded but not read yet."
+                    "This configuration is a {format:?} file. Licoman reads TOML and mpv \
+                     configurations; this format is recorded but not read yet."
                 ),
                 format!("unsupported file format {format:?} for {}", descriptor.id),
             ));
@@ -580,6 +636,154 @@ impl FileReadBackend {
 
         self.probe_merged(&descriptor.id, &canonical_root, key_path)
     }
+
+    /// mpv branch of [`Self::probe_key`]: locate the documented single user
+    /// configuration, parse it with mpv's own grammar, and return the
+    /// top-level key's typed value (absent is a normal result). Keys inside
+    /// `[profile]` sections are deliberately not matched — this build reads
+    /// and edits top-level options only, and the diagnostics record when a
+    /// profile-scoped same-name key exists.
+    fn probe_mpv_key(
+        &self,
+        binding: &BackendBinding,
+        descriptor: &SettingDescriptor,
+    ) -> Result<FileKeyProbe, LicomanError> {
+        let BackendBinding::File {
+            path: _,
+            format,
+            key,
+            resolution,
+        } = binding
+        else {
+            return Err(LicomanError::new(
+                ErrorKind::Unavailable,
+                "This setting is not bound to a configuration file.",
+                format!("file backend got binding kind {:?}", binding.kind_name()),
+            ));
+        };
+        if *format != FileFormat::MpvConf {
+            return Err(LicomanError::new(
+                ErrorKind::Unavailable,
+                "This binding is not an mpv-grammar configuration.",
+                format!("mpv resolution got format {format:?} for {}", descriptor.id),
+            ));
+        }
+        if !matches!(resolution, Some(FileResolution::Mpv)) {
+            return Err(LicomanError::new(
+                ErrorKind::Unavailable,
+                "mpv-grammar configurations require the `mpv` resolution.",
+                format!(
+                    "mpv format with resolution {resolution:?} for {}",
+                    descriptor.id
+                ),
+            ));
+        }
+        let Some(key_path) = key else {
+            return Err(LicomanError::new(
+                ErrorKind::Unavailable,
+                "This setting does not name a configuration key, so it cannot be read.",
+                format!("file binding without key for {}", descriptor.id),
+            ));
+        };
+        let candidates = self.mpv_candidates();
+        let Some(root) = candidates.iter().find(|candidate| candidate.is_file()) else {
+            return Err(LicomanError::new(
+                ErrorKind::Unavailable,
+                "No mpv configuration file was found. mpv runs on its built-in defaults; \
+                 Licoman shows no invented value."
+                    .to_string(),
+                format!(
+                    "mpv: none of the documented search paths exist (checked: {})",
+                    candidates
+                        .iter()
+                        .map(|candidate| candidate.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            ));
+        };
+        let canonical_root = self.validated(&descriptor.id, root)?;
+        let bytes = read_bounded(&canonical_root, MAX_CONFIG_BYTES).map_err(|error| {
+            LicomanError::new(
+                ErrorKind::Unavailable,
+                "This configuration file could not be read.",
+                format!("{}: {error}", canonical_root.display()),
+            )
+        })?;
+        let text = std::str::from_utf8(&bytes).map_err(|error| {
+            LicomanError::new(
+                ErrorKind::Unavailable,
+                "This configuration file is not valid UTF-8, so it cannot be read safely.",
+                format!("{}: {error}", canonical_root.display()),
+            )
+        })?;
+        let lines = crate::read::mpv::parse_conf(text);
+        let raw_lines: Vec<&str> = text.lines().collect();
+        let entry = crate::read::mpv::find_top_level_index(&raw_lines, key_path);
+        let mut diagnostics: Vec<String> = vec![format!("root: {}", canonical_root.display())];
+        // A same-name key inside a profile is a real trap — record it.
+        if entry.is_none()
+            && lines
+                .iter()
+                .any(|line| matches!(line, crate::read::mpv::MpvLine::SectionHeader(_)))
+        {
+            diagnostics.push(format!(
+                "no top-level entry for {key_path:?}; profile-scoped sections are not read"
+            ));
+        }
+        let value = match entry {
+            Some(index) => {
+                if let crate::read::mpv::MpvLine::Entry {
+                    value: raw_text, ..
+                } = &lines[index]
+                {
+                    match crate::read::mpv::conf_text_to_value(raw_text, descriptor.setting_type) {
+                        Some(value) => {
+                            diagnostics.push(format!("raw text: {} characters", raw_text.len()));
+                            Some(value)
+                        }
+                        None => {
+                            return Err(LicomanError::new(
+                                ErrorKind::Unavailable,
+                                "The stored value of this setting has a type Licoman cannot \
+                                 read.",
+                                format!(
+                                    "{id}: key {key_path:?} in {} is not a {t:?} value (raw: \
+                                     {raw_text:?})",
+                                    canonical_root.display(),
+                                    id = descriptor.id,
+                                    t = descriptor.setting_type
+                                ),
+                            ));
+                        }
+                    }
+                } else {
+                    None
+                }
+            }
+            None => None,
+        };
+        let meta = std::fs::metadata(&canonical_root).ok();
+        let mut fingerprint = Vec::new();
+        fingerprint.extend_from_slice(canonical_root.display().to_string().as_bytes());
+        fingerprint.extend_from_slice(&bytes);
+        if let Some(modified) = meta.as_ref().and_then(|m| m.modified().ok()) {
+            fingerprint.extend_from_slice(
+                format!("{:?}", modified.duration_since(std::time::UNIX_EPOCH)).as_bytes(),
+            );
+        }
+        Ok(FileKeyProbe {
+            root: canonical_root.clone(),
+            winner: value.is_some().then(|| canonical_root.clone()),
+            winner_position: value.is_some().then_some(0),
+            imported: false,
+            value,
+            single_file: true,
+            files: 1,
+            fingerprint: fnv1a_fingerprint(&fingerprint),
+            diagnostics,
+        })
+    }
 }
 
 /// One key's structural resolution inside the authorized roots — what the
@@ -650,39 +854,59 @@ impl SettingsReadBackend for FileReadBackend {
                 reason: "Not a configuration-file binding.".into(),
             };
         };
-        if *format != FileFormat::Toml {
-            return SupportState::Unavailable {
-                reason: format!(
-                    "This configuration is a {format:?} file. Reading TOML files lands first; \
-                     this format is recorded but not read yet."
-                ),
-            };
-        }
-        match resolution {
-            Some(FileResolution::Alacritty) | None => {
-                let exists = self.alacritty_candidates().iter().any(|c| c.is_file())
-                    || self.config_home.join(path).is_file();
-                if exists {
-                    SupportState::Available
-                } else {
-                    SupportState::Unavailable {
-                        reason: "No configuration file was found. The application runs on its \
-                                 built-in defaults; Licoman does not invent values."
-                            .into(),
-                    }
+        if *format == FileFormat::MpvConf {
+            // The version gate affects writes only; the read-side state is
+            // plain file presence.
+            if self
+                .mpv_candidates()
+                .iter()
+                .any(|candidate| candidate.is_file())
+            {
+                SupportState::Available
+            } else {
+                SupportState::Unavailable {
+                    reason: "No mpv configuration file was found. mpv runs on its built-in \
+                             defaults; Licoman does not invent values."
+                        .into(),
                 }
             }
-            Some(FileResolution::XdgFile) => {
-                if self.config_home.join(path).is_file() {
-                    SupportState::Available
-                } else {
-                    SupportState::Unavailable {
-                        reason: format!(
-                            "No configuration file exists at {}.",
-                            self.config_home.join(path).display()
-                        ),
+        } else if *format != FileFormat::Toml {
+            SupportState::Unavailable {
+                reason: format!(
+                    "This configuration is a {format:?} file. Reading TOML and mpv \
+                     configurations lands first; this format is recorded but not read yet."
+                ),
+            }
+        } else {
+            match resolution {
+                Some(FileResolution::Alacritty) | None => {
+                    let exists = self.alacritty_candidates().iter().any(|c| c.is_file())
+                        || self.config_home.join(path).is_file();
+                    if exists {
+                        SupportState::Available
+                    } else {
+                        SupportState::Unavailable {
+                            reason: "No configuration file was found. The application runs on \
+                                     its built-in defaults; Licoman does not invent values."
+                                .into(),
+                        }
                     }
                 }
+                Some(FileResolution::XdgFile) => {
+                    if self.config_home.join(path).is_file() {
+                        SupportState::Available
+                    } else {
+                        SupportState::Unavailable {
+                            reason: format!(
+                                "No configuration file exists at {}.",
+                                self.config_home.join(path).display()
+                            ),
+                        }
+                    }
+                }
+                Some(FileResolution::Mpv) => SupportState::Unavailable {
+                    reason: "mpv-grammar bindings require the mpv_conf format.".into(),
+                },
             }
         }
     }
@@ -760,13 +984,17 @@ impl SettingsReadBackend for FileReadBackend {
                 diagnostics: probe.diagnostics,
             }
         };
-        // Surface the detected Alacritty support on every Alacritty row's
-        // Source details (07 Integration A: version applicability is
-        // visible, not implied).
+        // Surface the detected Alacritty / mpv support on the matching rows'
+        // Source details (version applicability is visible, not implied).
         if matches!(resolution, Some(FileResolution::Alacritty)) {
             details
                 .diagnostics
                 .push(format!("alacritty: {}", self.alacritty.describe()));
+        }
+        if matches!(resolution, Some(FileResolution::Mpv)) {
+            details
+                .diagnostics
+                .push(format!("mpv: {}", self.mpv.describe()));
         }
         Ok(ReadResult {
             value,

@@ -3,6 +3,7 @@
 //! All domain logic lives in `licoman-core`; all rendering in `licoman-ui`.
 
 mod cli;
+mod scale_demo;
 mod writes_demo;
 
 use gpui_kit::{App, AppContext, KeyBinding, application, init};
@@ -146,7 +147,79 @@ fn run_diagnostics() {
     );
 }
 
+/// Filesystem-only probe for the Vulkan user-space stack: the loader
+/// library and at least one installable-driver (ICD) manifest. Bounded and
+/// side-effect free — a deeper failure (broken driver, device-less
+/// context) still surfaces through the panic hook with the same pointer.
+fn vulkan_precheck() -> Result<(), String> {
+    if std::env::var_os("LICOMAN_SKIP_VULKAN_CHECK").is_some_and(|v| v == "1") {
+        // Documented escape hatch for headless CI builds of the binary;
+        // never set by normal runs.
+        return Ok(());
+    }
+    let loader_candidates = [
+        "/usr/lib/libvulkan.so.1",
+        "/usr/lib/x86_64-linux-gnu/libvulkan.so.1",
+        "/usr/lib64/libvulkan.so.1",
+        "/usr/local/lib/libvulkan.so.1",
+    ];
+    let loader = loader_candidates.iter().find(|path| {
+        std::fs::metadata(path)
+            .map(|meta| meta.is_file())
+            .unwrap_or(false)
+    });
+    let Some(loader) = loader else {
+        return Err(
+            "The Vulkan loader library (libvulkan.so.1) was not found.\n\
+             Install the Vulkan loader package for your distribution —\n\
+             e.g. 'vulkan-icd-loader' (Arch), 'libvulkan1' (Debian/Ubuntu),\n\
+             'vulkan-loader' (Fedora) — and the matching driver package\n\
+             (see the troubleshooting guide)."
+                .to_string(),
+        );
+    };
+    let icd_dirs = [
+        "/usr/share/vulkan/icd.d",
+        "/etc/vulkan/icd.d",
+        "/usr/local/share/vulkan/icd.d",
+    ];
+    let home_icd = std::env::var_os("HOME")
+        .map(|home| std::path::PathBuf::from(home).join(".local/share/vulkan/icd.d"));
+    let mut driver_manifests = 0usize;
+    let mut checked_dirs: Vec<String> = Vec::new();
+    for dir in icd_dirs
+        .iter()
+        .map(std::path::PathBuf::from)
+        .chain(home_icd)
+    {
+        checked_dirs.push(dir.display().to_string());
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.ends_with(".json") {
+                    driver_manifests += 1;
+                }
+            }
+        }
+    }
+    if driver_manifests == 0 {
+        return Err(format!(
+            "The Vulkan loader ({loader}) is installed, but no GPU driver\n\
+             manifests (ICD JSON) were found in {}\n\
+             Install the user-space driver for your GPU —\n\
+             e.g. 'mesa-vulkan-radeon'/'vulkan-intel' (Arch),\n\
+             'mesa-vulkan-drivers' (Debian/Ubuntu/Fedora) — or, for NVIDIA,\n\
+             the vendor driver package.",
+            checked_dirs.join(", ")
+        )
+        .to_string());
+    }
+    Ok(())
+}
+
 fn main() {
+    licoman_ui::startup::mark_process_start();
     match cli::parse(std::env::args().skip(1)) {
         cli::Parsed::PrintAndSucceed(text) => {
             println!("{text}");
@@ -188,6 +261,48 @@ fn main() {
         std::process::exit(1);
     }
 
+    // Phase 09: a usable Vulkan user-space stack is a documented
+    // prerequisite of the GPU renderer. Probe the loader and the driver
+    // manifests BEFORE launching the GUI so an unsupported machine gets an
+    // actionable diagnostic instead of a raw renderer failure (09 plan §2,
+    // "Vulkan diagnostics"). This is a filesystem-only probe: no GPU calls,
+    // no device creation, no output side effects.
+    if let Err(problem) = vulkan_precheck() {
+        licoman_core::log::error("licoman::main", "vulkan prerequisites missing", &[]);
+        eprintln!(
+            "licoman: the GPU rendering prerequisites are not met.\n\
+             {problem}\n\
+             Licoman renders through Vulkan and does not fall back to a\n\
+             software path. Nothing was modified.\n\
+             See the troubleshooting guide:\n\
+             https://github.com/barscn/licoman/blob/main/docs/troubleshooting.md#vulkan"
+        );
+        std::process::exit(1);
+    }
+
+    // Even with the pre-probe passing, a broken driver or compositor
+    // combination can fail during renderer construction. Attach a panic
+    // hook that appends the troubleshooting pointer to graphics-shaped
+    // panics so the failure is actionable, not raw (the panic itself still
+    // surfaces — nothing is swallowed).
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let message = info.to_string().to_ascii_lowercase();
+        if message.contains("vulkan")
+            || message.contains("gpu")
+            || message.contains("blade")
+            || message.contains("surface")
+            || message.contains("adapter")
+        {
+            eprintln!(
+                "\nlicoman: this failure looks graphics-related. See the\n\
+                 troubleshooting guide:\n\
+                 https://github.com/barscn/licoman/blob/main/docs/troubleshooting.md#vulkan"
+            );
+        }
+        previous_hook(info);
+    }));
+
     // Load preferences before the runtime starts so the resolved theme is
     // installed before the first window paints — no bright first-frame flash.
     // A missing or corrupt file must not prevent startup: `load` falls back
@@ -216,7 +331,25 @@ fn main() {
         None
     };
     let module_provider = if demo_name != "empty" {
-        let module_registry = licoman_core::modules::ModuleRegistry::load_builtin();
+        let is_scale_demo = demo_name == "scale";
+        let module_registry = if is_scale_demo {
+            // Synthetic scale catalog (Phase 08 performance gates): purely
+            // mock-backed generated manifests — 100 shared modules x 10
+            // settings + 120 application modules x 2 settings.
+            let generated = scale_demo::manifests(100, 10, 120, 2);
+            licoman_core::modules::ModuleRegistry::load(generated.into_iter().map(
+                |(name, text)| {
+                    (
+                        licoman_core::modules::registry::ModuleSource::Builtin(
+                            name.leak() as &'static str
+                        ),
+                        text,
+                    )
+                },
+            ))
+        } else {
+            licoman_core::modules::ModuleRegistry::load_builtin()
+        };
         for rejected in module_registry.rejected() {
             licoman_core::log::error(
                 "licoman::modules",
@@ -247,6 +380,9 @@ fn main() {
                     licoman_core::read::dbus::DBusReadBackend::with_client(std::sync::Arc::new(
                         licoman_core::read::dbus::AbsentServiceClient,
                     )),
+                    licoman_core::read::xfconf::XfconfReadBackend::with_client(
+                        std::sync::Arc::new(licoman_core::read::xfconf::AbsentXfconfClient),
+                    ),
                 ),
             )
         } else if writes_demo {
@@ -254,6 +390,32 @@ fn main() {
                 .as_ref()
                 .expect("writes env")
                 .provider(module_registry.clone())
+        } else if is_scale_demo {
+            // Mock-only catalog: no live reads of any kind. Absent clients
+            // make the choice explicit.
+            let fixtures =
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+            licoman_core::modules::ModuleProvider::with_router(
+                module_registry.clone(),
+                licoman_core::read::BackendRouter::new(
+                    licoman_core::read::gsettings::GSettingsReadBackend::for_paths(
+                        vec![fixtures.join("discovery/schemas")],
+                        None,
+                        vec![],
+                    ),
+                    licoman_core::read::file::FileReadBackend::for_dirs(
+                        fixtures.join("file-config"),
+                        fixtures.join("file-home"),
+                        vec![],
+                    ),
+                    licoman_core::read::dbus::DBusReadBackend::with_client(std::sync::Arc::new(
+                        licoman_core::read::dbus::AbsentServiceClient,
+                    )),
+                    licoman_core::read::xfconf::XfconfReadBackend::with_client(
+                        std::sync::Arc::new(licoman_core::read::xfconf::AbsentXfconfClient),
+                    ),
+                ),
+            )
         } else {
             // Phase 07 (D49): the live run carries the real write engine.
             // Nothing writes without the user's explicit Apply/Confirm; the
@@ -338,6 +500,7 @@ fn main() {
             let demo_env = if demo == "reads"
                 || demo == "reads-power"
                 || demo == "reads-apps"
+                || demo == "scale"
                 || demo.starts_with("writes")
             {
                 "arch-hyprland"
@@ -378,32 +541,71 @@ fn main() {
                 // it never changes setting state.
                 let nav = std::env::var("LICOMAN_CAPTURE_NAV").unwrap_or_default();
                 if let Some((scope, category)) = nav.split_once('/') {
+                    // "Application/<app-id>" opens the Applications window and
+                    // selects the app; other scopes navigate the main window.
+                    let app_for_nav = app.clone();
+                    let application_scope = scope == "Application";
+                    let app_id = category.to_string();
+                    let category = category.to_string();
                     let scope = match scope {
                         "Shared" => Scope::Shared,
                         "Desktop" => Scope::Desktop,
                         "Distribution" => Scope::Distribution,
                         _ => Scope::Shared,
                     };
-                    let category = category.to_string();
-                    let app_for_nav = app.clone();
                     cx.spawn(async move |cx| {
                         cx.background_executor()
                             .timer(std::time::Duration::from_millis(4500))
                             .await;
-                        app_for_nav.update(cx, |state, cx| {
-                            licoman_core::log::info(
-                                "licoman::capture",
-                                "capture navigation dispatched",
-                                &[("category", category.clone())],
-                            );
-                            state.dispatch(Command::SelectScope(scope), cx);
-                            state.dispatch(Command::SelectCategory(Some(category)), cx);
-                            // Navigation commands report settings_changed:
-                            // false, so the windows must be notified
-                            // explicitly (interactive clicks do this through
-                            // their listeners; a programmatic hook does not).
-                            cx.notify();
-                        });
+                        if application_scope {
+                            // Same shape as the app-detail demo hook: the
+                            // env names a MODULE id ("Application/app.mpv");
+                            // the identity resolves from the merged app list
+                            // once discovery published it, SelectApp runs in
+                            // its own update (the apps window reads AppState
+                            // at creation — a read inside the same update
+                            // would panic), and the apps window is notified
+                            // explicitly (a programmatic dispatch has no
+                            // click listener).
+                            // AsyncApp::update returns the closure's value.
+                            let (handle, apps_window) = cx.update(|app| {
+                                windows::open_apps_window_returning_entity(&app_for_nav, app)
+                            });
+                            cx.update(|app| {
+                                app.global_mut::<licoman_ui::app_state::WindowRegistry>()
+                                    .set_handle(licoman_core::WindowRole::Applications, handle);
+                            });
+                            app_for_nav.update(cx, |state, cx| {
+                                let identity = state.select_identity_for_module(&app_id.clone());
+                                licoman_core::log::info(
+                                    "licoman::capture",
+                                    "capture navigation dispatched",
+                                    &[
+                                        ("module", app_id.clone()),
+                                        ("identity", identity.clone().unwrap_or_default()),
+                                    ],
+                                );
+                                state.dispatch(Command::SelectApp { id: identity }, cx);
+                            });
+                            apps_window.update(cx, |_this, cx| {
+                                cx.notify();
+                            });
+                        } else {
+                            app_for_nav.update(cx, |state, cx| {
+                                licoman_core::log::info(
+                                    "licoman::capture",
+                                    "capture navigation dispatched",
+                                    &[("category", category.clone())],
+                                );
+                                state.dispatch(Command::SelectScope(scope), cx);
+                                state.dispatch(Command::SelectCategory(Some(category.clone())), cx);
+                                // Navigation commands report settings_changed:
+                                // false, so the windows must be notified
+                                // explicitly (interactive clicks do this through
+                                // their listeners; a programmatic hook does not).
+                                cx.notify();
+                            });
+                        }
                     })
                     .detach();
                 }

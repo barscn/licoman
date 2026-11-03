@@ -1,0 +1,675 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ModuleDefinition",
+  "description": "A module definition: one validated manifest\n(04_MODULE_SCHEMA_AND_REGISTRY.md §1/§2).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "id": {
+      "description": "Namespaced, immutable module id (e.g. `app.alacritty`,\n`desktop.gnome.interface`).",
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "#/$defs/ModuleScope"
+    },
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string",
+      "default": ""
+    },
+    "category": {
+      "description": "Navigation category (grouping metadata, not free-form layout).",
+      "type": "string"
+    },
+    "group": {
+      "description": "Default group/tab for settings that do not declare their own.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "order": {
+      "description": "Display order among modules (stable sort key, then id).",
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
+    "docs_url": {
+      "description": "Canonical upstream documentation. Optional; validated to be an\n`https://` URL. No other URL scheme is accepted.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "compatibility": {
+      "$ref": "#/$defs/Compatibility",
+      "default": {}
+    },
+    "support": {
+      "$ref": "#/$defs/SupportInfo",
+      "default": {}
+    },
+    "settings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SettingDefinition"
+      },
+      "default": []
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "scope",
+    "title",
+    "category"
+  ],
+  "$defs": {
+    "ModuleScope": {
+      "description": "The four information-architecture scopes a module can target\n(00_START_HERE.md). `application` modules surface in the Applications\nwindow only.",
+      "type": "string",
+      "enum": [
+        "shared",
+        "desktop",
+        "distribution",
+        "application"
+      ]
+    },
+    "Compatibility": {
+      "description": "Compatibility constraints, all optional and AND-ed together\n(04_MODULE_SCHEMA_AND_REGISTRY.md §1: app id/DE/distro family, version\nrange, required provider capability).",
+      "type": "object",
+      "properties": {
+        "desktops": {
+          "description": "Desktop environments this module applies to (case-insensitive names\nlike `GNOME`, `KDE`, `Hyprland`, `Xfce`).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "distros": {
+          "description": "Distribution ids/families matched against os-release `ID`/`ID_LIKE`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "apps": {
+          "description": "Desktop-file ids of the applications this module integrates\n(case-insensitive, `Name.desktop` or `name`).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "required_backends": {
+          "description": "Backend capability requirements: capability ids from discovery\n(`config:alacritty`, `package-manager:pacman`) or kind aliases\n(`gsettings`, `dbus`).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "app_version": {
+          "description": "Declared application version requirement. Licoman cannot detect\napplication versions yet, so a declared range is **conservatively\ntreated as incompatible** with the uncertainty explained.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VersionRange"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "VersionRange": {
+      "description": "Declared application version bounds.",
+      "type": "object",
+      "properties": {
+        "min": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "max": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      }
+    },
+    "SupportInfo": {
+      "description": "Maintainer metadata for provenance and the Applications window.",
+      "type": "object",
+      "properties": {
+        "maintainer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tested": {
+          "description": "Versions the module was tested against (display metadata).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SupportLevelNoUnsupported"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "SupportLevelNoUnsupported": {
+      "description": "Newtype so manifests can declare every support level **except**\n`unsupported` (a registered module that declares itself unsupported is a\ncontradiction and fails validation).",
+      "type": "string",
+      "enum": [
+        "supported",
+        "partial",
+        "read_only"
+      ]
+    },
+    "SettingDefinition": {
+      "description": "One setting definition (04_MODULE_SCHEMA_AND_REGISTRY.md §1).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Module-relative stable id; the full id is `<module-id>.<id>`.",
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "default": ""
+        },
+        "keywords": {
+          "description": "Extra search terms (synonyms, related names).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "type": {
+          "description": "Declared value type. Required for every control except `action`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValueKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "control": {
+          "$ref": "#/$defs/ControlKind"
+        },
+        "policy": {
+          "$ref": "#/$defs/ApplyPolicy",
+          "default": "staged"
+        },
+        "risk": {
+          "$ref": "#/$defs/RiskLevel",
+          "default": "low"
+        },
+        "required_auth": {
+          "description": "Authorization boundary (e.g. a polkit action id). Settings with an\nauthorization requirement are permission-held in this phase.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "restart": {
+          "description": "Restart/persistence semantics: the named target must restart for the\nchange to take effect.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "default": {
+          "description": "Declared default value (typed per `kind`).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ManifestValue"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nullable": {
+          "description": "Explicit absence support: only `string`/`path` settings may be\nnullable; an empty value then means \"not set\", never `false`/`0`\n(04_MODULE_SCHEMA_AND_REGISTRY.md §3).",
+          "type": "boolean"
+        },
+        "min": {
+          "description": "Inclusive numeric bounds (integer/float only).",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "step": {
+          "description": "Step for number/slider controls.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max_length": {
+          "description": "Maximum length for string/path values.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
+        },
+        "options": {
+          "description": "Enum options (enum kind only).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnumOption"
+          }
+        },
+        "group": {
+          "description": "Group/tab metadata: the Applications-window tab and search breadcrumb\nfor this setting. Falls back to the module group, then the category.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "order": {
+          "description": "Display order within the module (stable sort key, then declaration\norder).",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "availability": {
+          "description": "Optional availability predicate (AND of present fields).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AvailabilityPredicate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "backend": {
+          "description": "Where the value lives (data-only allowlist; see [`BackendBinding`]).",
+          "$ref": "#/$defs/BackendBinding"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "control",
+        "backend"
+      ]
+    },
+    "ValueKind": {
+      "description": "The declared value type of a setting. Strings are **not** a universal\ndata type (04_MODULE_SCHEMA_AND_REGISTRY.md §3).",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "boolean",
+            "enum",
+            "integer",
+            "float",
+            "string",
+            "path"
+          ]
+        },
+        {
+          "description": "Optional list of strings; empty = not set (e.g. a service-provided\nprofile list). Phase 05: readable through the D-Bus backend.",
+          "type": "string",
+          "const": "list"
+        }
+      ]
+    },
+    "ControlKind": {
+      "description": "The UI control kind. Presentation is owned by Licoman's design system —\nthe control selects among approved components, never free-form layout\n(04_MODULE_SCHEMA_AND_REGISTRY.md §3).",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "switch",
+            "checkbox",
+            "dropdown",
+            "number",
+            "slider",
+            "text",
+            "path_input"
+          ]
+        },
+        {
+          "description": "A declarative action; explicitly inert until a trusted backend is\nwired (Phase 06+ gates actions). Rendered as an explanation.",
+          "type": "string",
+          "const": "action"
+        },
+        {
+          "description": "Informational display-only value.",
+          "type": "string",
+          "const": "read_only"
+        }
+      ]
+    },
+    "ApplyPolicy": {
+      "description": "How a change reaches the source (04_MODULE_SCHEMA_AND_REGISTRY.md §1:\n`immediate`, `staged` or `read_only`).",
+      "oneOf": [
+        {
+          "description": "Apply as soon as a valid edit is made.",
+          "type": "string",
+          "const": "immediate"
+        },
+        {
+          "description": "Stage the edit until the explicit Apply action.",
+          "type": "string",
+          "const": "staged"
+        },
+        {
+          "description": "The setting can never be written through Licoman in this phase.",
+          "type": "string",
+          "const": "read_only"
+        }
+      ]
+    },
+    "RiskLevel": {
+      "description": "Risk classification for truthful UI treatment (parsed, validated and\nindexed; `high` risk rows carry a warning status line).",
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "ManifestValue": {
+      "description": "A typed manifest value (the declared `default`). A closed enum instead of\na generic dynamic value so the JSON Schema stays precise and validation\ncan be field-level.",
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer",
+          "format": "int64"
+        },
+        {
+          "type": "number",
+          "format": "double"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ManifestValue"
+          }
+        }
+      ]
+    },
+    "EnumOption": {
+      "description": "One enum option: the stored `value` plus an optional display `label`.",
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "value"
+      ]
+    },
+    "AvailabilityPredicate": {
+      "description": "Optional per-setting availability predicate (AND of the present fields),\nevaluated against the same environment facts as module compatibility.",
+      "type": "object",
+      "properties": {
+        "desktop": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "distro": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "app": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "backend": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "BackendBinding": {
+      "description": "Where a setting's value lives. A **data-only allowlist**: manifests can\nselect supported backends and name targets, but can never carry shell\ntext, commands, code, or native library references\n(04_MODULE_SCHEMA_AND_REGISTRY.md §4; 00_START_HERE.md non-negotiable 5).",
+      "oneOf": [
+        {
+          "description": "Deterministic in-memory mock values (declared defaults). Used by\nmock modules and the visual-verification catalog.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "mock"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "A GSettings schema/key pair. Applicability requires the schema\ndatabase probe AND the exact schema/key to be present.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "gsettings"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "schema",
+            "key"
+          ]
+        },
+        {
+          "description": "A service on the session bus (well-known name check only in this\nphase; property reads arrive with Phase 05).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "dbus"
+            },
+            "service": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "interface": {
+              "type": "string"
+            },
+            "property": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "service",
+            "path",
+            "interface"
+          ]
+        },
+        {
+          "description": "A configuration file under `$XDG_CONFIG_HOME` (relative path, no\n`..`, no absolute paths — validation rejects anything else).\n`resolution` selects how the file is located and merged\n(Phase 05: TOML first; Alacritty's documented search paths and\n`general.import` merge are the first implemented strategy).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "file"
+            },
+            "path": {
+              "type": "string"
+            },
+            "format": {
+              "$ref": "#/$defs/FileFormat"
+            },
+            "key": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "resolution": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/FileResolution"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "path",
+            "format"
+          ]
+        },
+        {
+          "description": "A property in an Xfconf channel (Phase 08, Wave A.3): the Xfce\nconfiguration service on the session bus. Data-only: a channel\nidentifier plus a `/`-rooted property path. Explicitly read-only in\nthis build — `probe` validates actual channel/property presence, the\nread envelope reports the honest read-only reason, and no write\ntarget exists (the engine refuses [`WriteTarget::ReadOnly`]).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "xfconf"
+            },
+            "channel": {
+              "type": "string"
+            },
+            "property": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "channel",
+            "property"
+          ]
+        }
+      ]
+    },
+    "FileFormat": {
+      "description": "File formats a `file` binding may declare (validated allowlist).",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "toml",
+            "json",
+            "keyfile"
+          ]
+        },
+        {
+          "description": "mpv's own `key=value` / `[profile]` grammar (Phase 08) — parsed with\nthe mpv rules, never TOML. Requires `resolution = \"mpv\"`.",
+          "type": "string",
+          "const": "mpv_conf"
+        }
+      ]
+    },
+    "FileResolution": {
+      "description": "How a `file` binding locates and merges its configuration. Closed\nallowlist: unknown strategies are a validation error, never a guess.",
+      "oneOf": [
+        {
+          "description": "One file relative to `$XDG_CONFIG_HOME`, read as-is.",
+          "type": "string",
+          "const": "xdg_file"
+        },
+        {
+          "description": "Alacritty: documented search-path list plus the `general.import`\nmerge (\"imports are loaded in order, skipping all missing files,\nwith the importing file being loaded last\").",
+          "type": "string",
+          "const": "alacritty"
+        },
+        {
+          "description": "mpv (Phase 08): the documented single user configuration\n(`$XDG_CONFIG_HOME/mpv/mpv.conf`, legacy `~/.mpv/config`), parsed\nwith mpv's own `key=value` / `[profile]` grammar; top-level options\nonly. Writes are gated by the detected mpv version.",
+          "type": "string",
+          "const": "mpv"
+        }
+      ]
+    }
+  }
+}

@@ -34,6 +34,9 @@ fn fixture_router() -> BackendRouter {
             vec![fixtures.join("alacritty/etc")],
         ),
         DBusReadBackend::with_client(Arc::new(HangingClient)),
+        crate::read::xfconf::XfconfReadBackend::with_client(Arc::new(
+            crate::read::xfconf::AbsentXfconfClient,
+        )),
     )
 }
 

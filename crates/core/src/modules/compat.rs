@@ -333,6 +333,25 @@ pub fn setting_status(
                 ))
             }
         }
+        BackendBinding::Xfconf { .. } => {
+            // The xfconfd service name must be visible on the session bus
+            // (the same passive probe every service check uses). Channel and
+            // property presence are validated per row by the backend's own
+            // probe — the facts here carry names only.
+            if facts
+                .bus_names
+                .contains(crate::read::xfconf::XFCONF_SERVICE)
+            {
+                Ok(())
+            } else {
+                Err(format!(
+                    "The Xfconf configuration service ({}) was not found on the session \
+                     bus. It ships with Xfce; Licoman never starts one to make a setting \
+                     look available.",
+                    crate::read::xfconf::XFCONF_SERVICE
+                ))
+            }
+        }
         BackendBinding::File { .. } => {
             // Presence of the file itself is a Phase 05 read concern; module
             // compatibility carries the required capability (e.g.
@@ -403,8 +422,8 @@ pub fn backend_note(binding: &BackendBinding) -> Option<String> {
         return None;
     }
     Some(format!(
-        "Bound to a {} backend — reads arrive with real read support (Phase 05); this build \
-         never writes it.",
+        "Bound to a {} backend — read support follows the backend's documented limits; \
+         this build never writes it without the safe write engine.",
         binding.kind_name()
     ))
 }

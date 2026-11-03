@@ -1,0 +1,41 @@
+Licoman — third-party notices
+=============================
+
+Licoman is licensed under the MIT license (see LICENSE). The dependency
+manifest for release builds is the committed Cargo.lock (816 locked
+entries across the workspace at the time of this release); every
+third-party crate in it declares an SPDX license. The table below lists
+the components with user-visible or security-relevant roles and their
+licenses, as recorded by each crate's own Cargo.toml.
+
+Rendering and UI (Apache-2.0)
+  gpui-kit 0.8.1, gpui-base 0.8.1, gpui-component 0.8.1,
+  gpui-fast 0.1.12 — the GPUI toolchain (Zed's UI framework ecosystem,
+  Longbridge's gpui-fast fork). Apache-2.0 license texts are included in
+  the crates and available from their repositories.
+  The bundled Lucide icon set (gpui-kit assets) is ISC-licensed upstream.
+
+D-Bus and portals (MIT)
+  zbus 5.19.0, zvariant 5.15.1, ashpd 0.13.13
+
+Native GSettings (MIT)
+  gio 0.18.4 (Rust bindings; links the system libgio/libgobject from
+  glib2, which is LGPL-2.1-or-later — a system library used through its
+  public API, not redistributed)
+
+Configuration parsing (MIT OR Apache-2.0)
+  toml_edit 0.20.7, toml 0.9.x, serde/serde_json 1.0.x, schemars 1.2.3 (MIT)
+  xattr 1.7.0 (MIT OR Apache-2.0)
+
+File watching (CC0-1.0)
+  notify 8.2.1, futures-lite 2.6.1 / futures 0.3 (Apache-2.0 OR MIT)
+
+Icons
+  The application icon (assets/io.github.barscn.Licoman.svg) is drawn for
+  this project and distributed under the project license (MIT).
+
+No third-party component is modified; none embeds a network service, and
+no dependency bundles proprietary code. The full machine-readable
+dependency list (name, version, source) is the committed Cargo.lock;
+regenerate this audit with the documented command in
+docs/handoffs/PHASE_09_REPORT.md.

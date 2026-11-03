@@ -17,6 +17,7 @@ use licoman_core::read::BackendRouter;
 use licoman_core::read::dbus::{DBusReadBackend, PropertyValue};
 use licoman_core::read::file::FileReadBackend;
 use licoman_core::read::gsettings::GSettingsReadBackend;
+use licoman_core::read::xfconf::{AbsentXfconfClient, XfconfReadBackend};
 use licoman_core::write::WriteEngine;
 use licoman_core::write::file_write::FileWriteBackend;
 use licoman_core::write::service_write::{FakeServiceClient, ServiceWriteBackend};
@@ -122,6 +123,7 @@ impl WritesEnv {
             ),
             read.clone(),
             DBusReadBackend::with_client(self.dbus.clone()),
+            XfconfReadBackend::with_client(Arc::new(AbsentXfconfClient)),
         );
         let file_write = FileWriteBackend::new(read, self.temp.join("backups"));
         let service_write = ServiceWriteBackend::new(self.dbus.clone());

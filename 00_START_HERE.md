@@ -4,6 +4,30 @@
 for Linux configuration, built with **Rust + GPUI + GPUI Kit**. No Electron,
 no browser UI, no embedded web view.
 
+> **Status: Phase 09 (release quality + packaging) implemented —
+> release candidate **0.1.0-alpha.0** proposed, nothing published.** New:
+> Vulkan startup diagnostics, an Arch PKGBUILD (makepkg-verified) with
+> launcher/icons/AppStream under the  id,
+> measured quality gates (first frame ≈ 0.6 s, idle CPU 0.07 %, search
+> p95 ≈ 0.1 ms), the full release documentation set and a Go/No-Go
+> report. See [docs/handoffs/PHASE_09_REPORT.md](docs/handoffs/PHASE_09_REPORT.md),
+> [docs/installation.md](docs/installation.md) and
+> [CHANGELOG.md](CHANGELOG.md) (decisions D59–D60).
+
+> **Status: Phase 08 (desktop/application expansion + contributor
+> workflow) implemented.** New Xfconf read backend (explicitly read-only,
+> live-verified against real xfconfd) and mpv file-backend resolution
+> (version-gated writes, live-verified reads), a manifest-only
+> contributor-proof module, virtualized settings rendering measured at
+> 1,240-setting scale, and the full contributor doc set
+> ([modules/README.md](modules/README.md),
+> [modules/CONTRIBUTING.md](modules/CONTRIBUTING.md),
+> [docs/compatibility.md](docs/compatibility.md),
+> [docs/security/module-trust.md](docs/security/module-trust.md)). See
+> [docs/handoffs/PHASE_08_REPORT.md](docs/handoffs/PHASE_08_REPORT.md)
+> and [docs/architecture/decisions.md](docs/architecture/decisions.md)
+> (D55–D58).
+
 > **Status: Phase 07 (first live settings integrations) implemented.**
 > The Phase 06 safe write engine now has live backends: Alacritty TOML
 > writes (version-validated, xattr/ACL preserve-or-refuse), GSettings

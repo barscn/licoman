@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata for Licoman. Support claims here mirror
+     docs/compatibility.md — only demonstrated functionality is described,
+     per the release plan's honesty boundary. -->
+<component type="desktop-application">
+  <id>io.github.barscn.Licoman</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Licoman</name>
+  <summary>Linux Configuration Manager</summary>
+  <description>
+    <p>
+      Licoman is a native Linux desktop application (Rust + GPUI — no
+      Electron, no embedded web view) that surfaces settings from
+      shared/system capabilities, desktop environments, distributions and
+      installed applications through one registry-driven interface.
+    </p>
+    <p>
+      Support is deliberately incremental and honestly labelled: rows show
+      where their value came from (live service state, your configuration,
+      declared defaults), and settings the running system cannot serve show
+      truthful unavailable states instead of invented values. Writes go
+      through a safe write engine with conflict checks, backups and
+      readback verification; every write requires an explicit user action.
+      Licoman runs unprivileged, has no sign-in, no telemetry and no
+      background daemon.
+    </p>
+    <p>Currently demonstrated integrations include:</p>
+    <ul>
+      <li>GNOME/GSettings — reads and gated writes through the native gio API</li>
+      <li>Xfce/Xfconf — live reads with per-row channel and property validation (read-only)</li>
+      <li>mpv — version-gated configuration reads and writes</li>
+      <li>Alacritty — TOML configuration with import merge and version validation</li>
+      <li>Hyprland — read-only compositor diagnostics over the documented IPC</li>
+      <li>power-profiles-daemon — typed property reads and writes</li>
+    </ul>
+    <p>
+      Unsupported applications stay visible in the Applications window with
+      a real integration-status explanation. See the project's
+      compatibility document for the tested matrix.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.barscn.Licoman.desktop</launchable>
+  <developer_name>Barışcan Aslan</developer_name>
+  <url type="homepage">https://github.com/barscn/licoman</url>
+  <url type="bugtracker">https://github.com/barscn/licoman/issues</url>
+  <categories>
+    <category>Settings</category>
+    <category>System</category>
+  </categories>
+  <releases>
+    <release version="0.1.0-alpha.0" date="2026-11-04">
+      <description>
+        <p>First public release candidate: registry-driven settings UI,
+        environment discovery, read backends (GSettings, config files,
+        D-Bus services, Xfconf, compositor IPC) and the safe write engine
+        (files, GSettings, PowerProfiles). Alpha: expect rough edges and
+        limited coverage; see the compatibility document.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1"/>
+  <provides>
+    <binary>licoman</binary>
+  </provides>
+</component>

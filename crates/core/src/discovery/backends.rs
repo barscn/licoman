@@ -183,6 +183,28 @@ pub fn probe_all(
     );
     if bus.available {
         facts.bus_names = bus.names.iter().cloned().collect();
+        // Xfconf (Phase 08, Wave A.3): the Xfce configuration service is a
+        // session-bus capability — its presence is what Xfconf-backed
+        // modules require. Passive: the name must already be on the bus.
+        if facts
+            .bus_names
+            .contains(crate::read::xfconf::XFCONF_SERVICE)
+        {
+            backends.push(BackendCapability {
+                id: "xfconf".to_string(),
+                kind: BackendKind::Service,
+                status: BackendStatus::Available,
+                evidence: vec![Evidence::new(
+                    EvidenceSource::DBus,
+                    Confidence::High,
+                    format!(
+                        "{} present on the session bus",
+                        crate::read::xfconf::XFCONF_SERVICE
+                    ),
+                )],
+                detail: None,
+            });
+        }
         backends.push(BackendCapability {
             id: "dbus-session".to_string(),
             kind: BackendKind::Service,

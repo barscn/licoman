@@ -384,6 +384,9 @@ fn provenance_lines(def: &ModuleDefinition) -> Vec<String> {
                 Some(key) => format!("file {} ({format:?}) key {key}", path),
                 None => format!("file {} ({format:?})", path),
             },
+            super::def::BackendBinding::Xfconf { channel, property } => {
+                format!("xfconf channel {channel:?} property {property:?} (read-only)")
+            }
         };
         if !lines.contains(&line) {
             lines.push(line);

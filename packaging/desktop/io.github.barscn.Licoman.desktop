@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Licoman
+GenericName=Linux Configuration Manager
+Comment=One native interface for shared, desktop, distribution and application settings
+Exec=/usr/bin/licoman
+Icon=io.github.barscn.Licoman
+Terminal=false
+Categories=Settings;System;Utility;
+Keywords=settings;configuration;system;gnome;xfce;hyprland;
+StartupWMClass=io.github.barscn.Licoman

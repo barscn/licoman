@@ -126,7 +126,7 @@ impl std::fmt::Display for ClientError {
 }
 
 impl ClientError {
-    fn to_licoman(&self, what: &str) -> LicomanError {
+    pub(crate) fn to_licoman(&self, what: &str) -> LicomanError {
         match self {
             ClientError::NoBus(detail) => LicomanError::new(
                 ErrorKind::Unavailable,
