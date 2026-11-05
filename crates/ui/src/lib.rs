@@ -7,6 +7,7 @@
 
 pub mod actions;
 pub mod app_state;
+pub mod brand;
 pub mod environment_watch;
 pub mod gsettings_watch;
 pub mod settings_watch;

@@ -31,8 +31,12 @@ File watching (CC0-1.0)
   notify 8.2.1, futures-lite 2.6.1 / futures 0.3 (Apache-2.0 OR MIT)
 
 Icons
-  The application icon (assets/io.github.barscn.Licoman.svg) is drawn for
-  this project and distributed under the project license (MIT).
+  The application icon (assets/icons/hicolor) uses the Lucide "blocks"
+  symbol as its brand mark. Lucide is ISC-licensed; the license is
+  preserved alongside the logo source in
+  assets/icons/LUCIDE_LICENSE_ISC.txt (upstream: lucide.dev/icons/blocks).
+  The bundled Lucide icon set (gpui-kit assets) is likewise ISC-licensed
+  upstream.
 
 No third-party component is modified; none embeds a network service, and
 no dependency bundles proprietary code. The full machine-readable
