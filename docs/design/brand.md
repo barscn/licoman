@@ -10,12 +10,14 @@
   "Requires permission", "Changed outside Licoman". Never celebratory or
   alarmist. Copy explains effect, scope, restart, permission and whether a
   value is currently saved.
-- **Icon direction:** an L-shaped monogram integrated with two or three small
-  slider tracks, legible at 16–128 px in light and dark. A generic gear is
-  explicitly avoided as the only identifying shape. **Status:** not drawn in
-  Phase 01; the header uses a neutral `sliders-horizontal` glyph as a
-  placeholder and no application icon is bundled. Icon approval is a separate
-  visual gate (per the plan, vector/license-clean, no distro logos, no
-  mascots, no heavy gradients).
+- **Icon direction:** the Lucide `blocks` glyph — three connected outlined
+  squares making an L, plus one detached square — as the "Modular L" brand
+  mark. Approved 2026-11-05 (logo package: dark cobalt `#8AB4FF` outline on
+  dark canvas for the app icon, deep blue `#255FD4` for light appearance;
+  transparent marks for in-app use). Source of truth lives outside the repo;
+  the repo carries the rendered set under `assets/icons/hicolor` (16–1024 px
+  PNGs + scalable SVG) and `assets/branding/mark`. The mark is the pre-existing
+  Lucide `blocks` icon (ISC); see `assets/icons/LUCIDE_LICENSE_ISC.txt` and
+  `NOTICES`.
 - **What Licoman is not:** not a web dashboard, not a GNOME/KDE clone, not a
   replacement for the desktop's own settings daemon.

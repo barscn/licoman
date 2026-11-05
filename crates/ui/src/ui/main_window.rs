@@ -1803,10 +1803,7 @@ impl Render for MainWindow {
                             h_flex()
                                 .gap_2()
                                 .items_center()
-                                .child(
-                                    Icon::new(gpui_kit::assets::IconName::SlidersHorizontal)
-                                        .text_color(theme.primary),
-                                )
+                                .child(crate::brand::brand_mark().text_color(theme.primary))
                                 .child(
                                     div()
                                         .text_size(px(metrics::TEXT_LABEL))

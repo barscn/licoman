@@ -85,10 +85,10 @@ package() {
   _icon=assets/icons/hicolor
   install -Dm644 "$_icon/scalable/apps/io.github.barscn.Licoman.svg" \
     "$pkgdir/usr/share/icons/hicolor/scalable/apps/io.github.barscn.Licoman.svg"
-  install -Dm644 "$_icon/128x128/apps/io.github.barscn.Licoman.png" \
-    "$pkgdir/usr/share/icons/hicolor/128x128/apps/io.github.barscn.Licoman.png"
-  install -Dm644 "$_icon/256x256/apps/io.github.barscn.Licoman.png" \
-    "$pkgdir/usr/share/icons/hicolor/256x256/apps/io.github.barscn.Licoman.png"
+  for _size in 16 20 22 24 32 36 48 64 72 96 128 192 256 512 1024; do
+    install -Dm644 "$_icon/${_size}x${_size}/apps/io.github.barscn.Licoman.png" \
+      "$pkgdir/usr/share/icons/hicolor/${_size}x${_size}/apps/io.github.barscn.Licoman.png"
+  done
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 NOTICES "$pkgdir/usr/share/licenses/$pkgname/NOTICES"
   install -dm755 "$pkgdir/usr/share/doc/$pkgname"
