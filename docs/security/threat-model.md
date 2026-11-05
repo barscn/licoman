@@ -160,8 +160,9 @@ real user database. Recovery was immediate and verified: native
 `dconf dump`, no other key touched. The isolation procedure was fixed
 (private session bus + self-started `dconf-service` with the disposable
 environment) and the approved operation was then executed cleanly with the
-real database fingerprint byte-identical before/after. Full timeline in
-`docs/handoffs/PHASE_07_REPORT.md`.
+real database fingerprint byte-identical before/after. The full timeline is
+part of the project's recorded verification history (summarized in
+[CHANGELOG.md](../../CHANGELOG.md)).
 
 ---
 

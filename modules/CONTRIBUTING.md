@@ -1,8 +1,8 @@
 # Contributing a module
 
 This is the beginner workflow for adding a **data-only module** — no Rust
-code, no UI changes. The Phase 08 proof is `desktop-gnome-peripherals.toml`,
-which was added as manifest + documentation alone.
+code, no UI changes. `desktop-gnome-peripherals.toml` in `modules/builtin/`
+was added as manifest + documentation alone and is the worked example.
 
 ## The workflow
 

@@ -71,7 +71,7 @@ check() {
   export CARGO_TARGET_DIR="$srcdir/target"
   unset CFLAGS CXXFLAGS LDFLAGS RUSTFLAGS
   # Headless domain tests only; GUI/gpui tests compile in the build above
-  # and the full suite runs in CI on every push.
+  # and the full suite is run by the project's CI when enabled.
   cargo test --release --locked -p licoman-core
 }
 

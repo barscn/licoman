@@ -3,12 +3,14 @@
 Thank you for looking at Licoman. This document explains how the project is
 run, what the hard boundaries are, and how to verify a change.
 
-## The project is phase-driven
+## Getting oriented
 
-Licoman is built in numbered phases (00–09 of the author's plan pack).
-**Exactly one phase per working session**, each ending with
-`docs/handoffs/PHASE_<NN>_REPORT.md`. Check the latest handoff report before
-starting anything; do not skip ahead.
+The crate boundaries and data flow are described in
+[docs/architecture/README.md](docs/architecture/README.md), with the
+decision history in [docs/architecture/decisions.md](docs/architecture/decisions.md).
+The roadmap lives in [CHANGELOG.md](CHANGELOG.md) and the issue tracker —
+pick an issue or open one describing the change before starting anything
+large.
 
 ## Non-negotiable boundaries
 
@@ -27,7 +29,7 @@ Violating any of these is a bug even if tests pass:
 5. **Fail closed.** Unknown/unreadable/uncertain ⇒ unavailable, read-only,
    or failed states. Never guess, never silently overwrite.
 6. **No arbitrary scripting from manifests** — declarative, allowlisted
-   providers only (relevant from Phase 04 on).
+   providers only.
 7. **Truthful UI.** Read-only, dirty, applying, applied, failed, external
    conflict, permission and restart-required are distinct states.
 8. **No baseline telemetry, no network access, no background daemon, no
@@ -48,7 +50,8 @@ cargo build --workspace --release
 ```
 
 For UI changes, verify visually on a real Linux session (Wayland or X11) and
-use the `LICOMAN_DEMO` hooks (see [00_START_HERE.md](00_START_HERE.md)) for
+use the `LICOMAN_DEMO` hooks (see the
+[demo screen table](docs/contributing.md#deterministic-demo-screens)) for
 deterministic captures. A Wayland screenshot is not proof of X11 support and
 vice versa — say which session you tested.
 

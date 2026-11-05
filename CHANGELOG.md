@@ -1,7 +1,6 @@
 # Changelog
 
-All notable changes to Licoman are documented here. Licoman follows a
-phase-driven development model; each phase corresponds to one entry.
+All notable changes to Licoman are documented here.
 
 ## 0.1.0-alpha.0 — 2026-11-04
 
@@ -73,4 +72,4 @@ registry-driven architecture, with honest support states throughout.
 - The Phase 07 live-verification isolation incident is documented
   (one test key written to the real dconf database during the first
   attempt; recovered immediately via the platform's own reset; fix and
-  procedure recorded in the threat model and the Phase 07 report).
+  procedure recorded in the threat model).

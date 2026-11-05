@@ -28,8 +28,9 @@ renderer **blade/Vulkan** (gpui's Linux backend), no minimum-toolchain bump
 without a tested reason. The `ashpd` pin moved with the gpui dependency into
 `crates/licoman-ui` so feature unification stays airtight.
 
-**Why:** 00_START_HERE.md non-negotiable 10 forbids version bumps by
-guesswork; these versions are verified working on the real session.
+**Why:** the project's non-negotiable principles (see the README) forbid
+version bumps by guesswork; these versions are verified working on the real
+session.
 
 ## D16 — Three-crate modular monolith, not five tiny crates
 
@@ -47,8 +48,9 @@ registry and provider abstractions are separate **modules** today so the
 phase-04 registry implementation can be lifted into its own crate without
 churn if it ever needs to be.
 
-**Why:** 00_START_HERE.md: "A focused modular monolith is preferred";
-needless tiny crates would only add indirection before real backends exist.
+**Why:** the project's stated preference: "A focused modular monolith is
+preferred"; needless tiny crates would only add indirection before real
+backends exist.
 
 ## D17 — Provider trait shape: probe / descriptors / read / write + capabilities; no watch in Phase 02
 
@@ -147,7 +149,7 @@ displayed the last sample value instead — e.g. "Balanced" for the absent
 power-profiles-daemon). Readable-but-not-writable rows keep their value and
 show the provider note explaining why.
 
-**Why:** fail-closed (00_START_HERE.md non-negotiable 4): displaying a value
+**Why:** fail-closed (project principle 4): displaying a value
 Licoman cannot read would be pretending. Visual delta from Phase 01 is
 intentional and limited to truly unreadable rows.
 

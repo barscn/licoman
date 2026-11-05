@@ -1,7 +1,8 @@
 # Contributing
 
-Welcome. Licoman is phase-driven; read the latest handoff report before
-starting anything — `docs/handoffs/PHASE_<NN>_REPORT.md`.
+Welcome. Start with [docs/architecture/README.md](architecture/README.md)
+for the crate boundaries and [CONTRIBUTING.md](../CONTRIBUTING.md) for the
+project's hard rules.
 
 ## The hard boundaries (violating any of these is a bug even if tests pass)
 
@@ -33,17 +34,16 @@ cargo run -p licoman                              # the app (GUI session)
 cargo run -p licoman -- --diagnostics             # headless facts
 ```
 
-CI runs the manifest lint, the headless core suite and the full gpui
-workspace suite on every push. No test touches a real dconf database or a
-live session service; live verification runs are `#[ignore]`d,
-env-gated, and require an explicit, user-approved operation list (see
-`docs/live-testing/`).
+No test touches a real dconf database or a live session service; live
+verification runs are `#[ignore]`d, env-gated, and require an explicit,
+user-approved operation list. (The repository's CI workflow is temporarily
+disabled — run the release gates locally as below.)
 
 ## Adding a settings module (no Rust code needed)
 
-See [`modules/CONTRIBUTING.md`](../modules/CONTRIBUTING.md) — the
-Phase 08 proof module (`desktop-gnome-peripherals.toml`) was added as
-manifest + docs alone.
+See [`modules/CONTRIBUTING.md`](../modules/CONTRIBUTING.md) — a module is
+manifest + docs alone; `modules/builtin/desktop-gnome-peripherals.toml` is
+the worked example.
 
 ## Adding a backend family
 
@@ -51,8 +51,8 @@ A new backend family needs: discovery rules, effective-state precedence,
 writable capabilities (or an explicit read-only decision), concrete risk
 limits, fixture tests, external-change handling, user-facing source
 details, and verification on a real system when possible — the same
-checklist Xfconf and mpv went through (see the Phase 08 report). Start
-with an issue describing the target's documented public API.
+checklist Xfconf and mpv went through. Start with an issue describing the
+target's documented public API.
 
 ## Reviews
 
@@ -60,3 +60,33 @@ Every change lands through a pull request. Safety-relevant changes (write
 paths, privilege boundaries, isolation) additionally reference the threat
 model (`docs/security/threat-model.md`) and expand it when new backend
 capabilities appear.
+
+## Deterministic demo screens
+
+`LICOMAN_DEMO` opens a deterministic screen without input injection —
+useful for screenshots and visual review. All values:
+
+| Value | Shows |
+|---|---|
+| `apps` | Applications window |
+| `prefs` | Licoman Preferences window |
+| `light` / `light-apps` | Light theme, main / Applications window |
+| `failed` | Failed write state (Retry/Revert) |
+| `distro` / `desktop` | Distribution / Desktop scope |
+| `dirty` | One staged edit + apply bar |
+| `palette` | Global search palette open |
+| `empty` | No providers registered (unavailable state) |
+| `arch-hyprland`, `fedora-gnome`, `ubuntu-x11`, `debian-xfce`, `multi-xdg`, `unknown` | Discovery demo snapshots built through the real parsers (environments this machine cannot run) |
+| `all-apps` | Applications window opened directly in the "All installed" view |
+| `app-detail` | Applications window with an installed module-backed app selected (registry-driven tabs and rows) |
+| `reads` | Read backends on fixture data: real GSettings values with origin lines, plus the Source details dialog |
+| `reads-power` | The power-profiles service absent: truthful per-row unavailability |
+| `reads-apps` | Applications window: Alacritty rows read from the fixture TOML config |
+| `writes` | Safe write engine on a temp fixture copy + fake service: staged edits, apply bar (nothing outside the temp dir is touched) |
+| `writes-conflict` | A staged row changed externally: conflict state with Reload/Compare, no overwrite |
+| `writes-permission` | A permission-held row: lock, honest authorize dialog (deny-by-default broker) |
+| `writes-light` | Light theme with the write states visible (theme-while-dialog verification) |
+
+```sh
+LICOMAN_DEMO=apps cargo run -p licoman
+```

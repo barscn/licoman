@@ -53,7 +53,7 @@ configuration is ever written in this phase.
 - dconf isolation: a process-level `XDG_CONFIG_HOME` override does **not**
   isolate writes (the session bus's dconf-service owns the database path);
   disposable runs need a private session bus with a self-started
-  `dconf-service` — see the live checklist and the Phase 07 report.
+  `dconf-service` — verified during the live write-verification runs.
 - Hyprland 0.57 changed `hyprctl dispatch`/`keyword` to a Lua shim; the
   screenshot harness no longer drives float/resize dispatches and crops to
   the window's actual geometry instead.

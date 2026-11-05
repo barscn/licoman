@@ -32,8 +32,7 @@ them yourself.
 
 Note: the PKGBUILD builds with the same plain `cargo build --release` the
 repository's release gate uses; the distro-wide LTO/RUSTFLAGS set is
-unset in `build()` because it breaks the wayland-backend link (documented
-in the Phase 09 report).
+unset in `build()` because it breaks the wayland-backend link.
 
 Other distributions: no .deb or .rpm exists yet. Placeholder packages are
 deliberately not shipped — a package lands only with an actually tested
@@ -48,10 +47,32 @@ cargo run --release -p licoman        # the GUI application
 cargo run -p licoman -- --diagnostics # headless environment facts (read-only)
 ```
 
-Build requirements: a stable Rust toolchain (edition 2024), plus the usual
-gpui Linux build dependencies (clang, fontconfig, wayland, libxkbcommon,
-alsa, vulkan headers — see `.github/workflows/ci.yml` for the exact list
-CI uses).
+Build requirements: a stable Rust toolchain (edition 2024 — e.g. via
+[rustup](https://rustup.rs)), `pkg-config`, and the gpui Linux build
+dependencies:
+
+```sh
+# Debian / Ubuntu
+sudo apt-get install -y \
+  gcc g++ clang pkg-config \
+  libfontconfig-dev \
+  libwayland-dev \
+  libwebkit2gtk-4.1-dev \
+  libxkbcommon-x11-dev \
+  libx11-xcb-dev \
+  libssl-dev \
+  libzstd-dev \
+  libasound2-dev \
+  libvulkan1 \
+  libglib2.0-dev
+
+# Arch
+sudo pacman -S --needed \
+  base-devel clang pkgconf \
+  fontconfig wayland webkit2gtk-4.1 \
+  libxkbcommon-x11 libx11 alsa-lib \
+  openssl zstd vulkan-headers glib2
+```
 
 ## First run
 

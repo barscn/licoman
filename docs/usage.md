@@ -63,7 +63,7 @@ restart and without losing state.
 The interface is keyboard-reachable (tab navigation through rows,
 controls and dialogs; the palette is fully keyboard-driven). Some
 multi-window flows still need verification with assistive tools on your
-distribution — see the accessibility notes in the Phase 09 report.
+distribution — see [design/accessibility.md](design/accessibility.md).
 
 ## Privacy
 

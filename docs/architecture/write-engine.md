@@ -163,8 +163,7 @@ Apply/Confirm. `cargo test`/CI never construct a live engine.
   reads back through the same native transport, after an explicit
   `g_settings_sync()` — dconf-level writes are client-queued, and without
   the sync the readback would verify the client-local view instead of the
-  service (found during the live verification; see
-  `docs/live-testing/PHASE_07_LIVE_CHECKLIST.md`). A fail-closed **desktop
+  service (found during the live verification). A fail-closed **desktop
   gate** (fed from discovery) refuses writes outside a GNOME session even
   when schemas are installed.
 - **Alacritty version gate** (`read/alacritty.rs`, D50): every option
