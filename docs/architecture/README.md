@@ -52,7 +52,7 @@ crates/licoman-core   domain: typed values, descriptors, lifecycle store,
 - `apps/licoman` is deliberately thin: CLI parsing, environment checks,
   logging setup, and the gpui `application()` bootstrap.
 
-## Boundary rules (non-negotiable, from 00_START_HERE.md)
+## Boundary rules (non-negotiable)
 
 1. **Core never imports GPUI.** Descriptors, values, phases, errors,
    validation, the store, providers, the registry, search and preferences are

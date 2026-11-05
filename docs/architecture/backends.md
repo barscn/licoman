@@ -1,8 +1,8 @@
 # Read-only configuration backends
 
 How Licoman presents **actual effective settings** from fundamentally
-different Linux configuration mechanisms without modifying anything
-(05_READ_ONLY_BACKENDS.md). This phase is read-only; the only file Licoman
+different Linux configuration mechanisms without modifying anything. This
+phase is read-only; the only file Licoman
 writes remains its own `$XDG_CONFIG_HOME/licoman/preferences.toml`.
 
 ## The typed read layer (`licoman_core::read`)

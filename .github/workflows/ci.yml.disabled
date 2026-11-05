@@ -1,10 +1,13 @@
 # Licoman CI.
 #
+# TEMPORARILY DISABLED: this file is intentionally named `ci.yml.disabled`
+# so GitHub Actions does not pick it up. Re-enable by renaming to `ci.yml`.
+#
 # Headless unit tests (licoman-core, CLI) are separated from the full
 # GPUI workspace build, which needs graphics system libraries but no GPU for
 # compilation. Tests that require a human-run graphical session (screenshots,
 # keyboard walkthrough, live portal checks) are NOT in CI — they are
-# documented in docs/handoffs/ and docs/design/accessibility.md.
+# documented in docs/design/accessibility.md.
 
 name: CI
 

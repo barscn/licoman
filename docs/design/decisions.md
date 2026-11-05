@@ -7,7 +7,7 @@ Short records of decisions taken while implementing
 
 The plan says to inspect `barscn/gpui-kit-mock` and reuse its working
 patterns. That repository is not checked out anywhere on this machine and was
-not accessible to the plan's author either (noted in `00_START_HERE.md`).
+not accessible to the plan's author either.
 **Decision:** create the Licoman workspace from scratch in an empty
 repository, treating the plan documents as the prototype contract. The
 "preserve the prototype" rules remain satisfied vacuously; nothing was
