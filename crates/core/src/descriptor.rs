@@ -16,6 +16,12 @@ pub enum Scope {
     Desktop,
     Distribution,
     Application,
+    /// Main-window system overview panel (hardware/OS facts, not settings).
+    Summary,
+    /// Main-window account panel for the current user (own-user changes
+    /// through AccountsService; not a settings universe — no module targets
+    /// it, and [`Scope::ALL`] deliberately excludes it).
+    User,
 }
 
 impl Scope {
@@ -28,7 +34,14 @@ impl Scope {
 
     /// The scopes offered in the main-window sidebar. `Application` is
     /// deliberately absent: it has its own window (00_START_HERE.md IA).
-    pub const SIDEBAR: [Scope; 3] = [Scope::Shared, Scope::Desktop, Scope::Distribution];
+    /// `User` is also absent: it is reached through the sidebar's user card,
+    /// not a menu item.
+    pub const SIDEBAR: [Scope; 4] = [
+        Scope::Summary,
+        Scope::Shared,
+        Scope::Desktop,
+        Scope::Distribution,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -36,6 +49,8 @@ impl Scope {
             Scope::Desktop => "Desktop",
             Scope::Distribution => "Distribution",
             Scope::Application => "Applications",
+            Scope::Summary => "Summary",
+            Scope::User => "User",
         }
     }
 
@@ -45,6 +60,8 @@ impl Scope {
             Scope::Desktop => "Settings provided by your desktop environment.",
             Scope::Distribution => "Distribution administration and package tooling.",
             Scope::Application => "Settings for your installed applications.",
+            Scope::Summary => "Hardware and system facts of this machine.",
+            Scope::User => "Your account on this system.",
         }
     }
 }

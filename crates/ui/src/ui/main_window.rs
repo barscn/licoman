@@ -5,7 +5,6 @@
 //! hard-coded here. Rendering reads owned snapshots from the core store;
 //! every intent goes through `AppState::dispatch` with a typed command.
 
-use crate::app_state::ScanState;
 use gpui_kit::component::TitleBar;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -32,6 +31,8 @@ use crate::theme::metrics;
 use crate::ui::setting_controls::ControlSet;
 use crate::ui::{OptionIntoAny as _, read_only_value, setting_row, window_heading};
 use gpui_kit::Div;
+use gpui_kit::component::Size;
+use gpui_kit::component::avatar::Avatar;
 use gpui_kit::component::theme::Theme;
 use licoman_core::prefs::AppearanceMode;
 
@@ -112,6 +113,9 @@ pub struct MainWindow {
     list_items_signature: u64,
     /// Scroll/layout state of the virtualized list, kept across renders.
     list_state: gpui_kit::ListState,
+    /// The account panel entity for Scope::User, built lazily on first
+    /// selection (its input states need window access at creation).
+    user_panel: Option<Entity<crate::ui::user_panel::UserAccountPanel>>,
     _subscriptions: Vec<Subscription>,
     _appearance_sub: Option<Subscription>,
 }
@@ -170,6 +174,8 @@ impl MainWindow {
                     cx.notify();
                 }
                 AppEvent::PreferencesChanged | AppEvent::EnvironmentChanged => cx.notify(),
+                // The user card and (when open) the account panel re-render.
+                AppEvent::AccountChanged => cx.notify(),
             }
         }));
 
@@ -212,6 +218,7 @@ impl MainWindow {
             // before every item has been measured.
             list_state: gpui_kit::ListState::new(0, gpui_kit::ListAlignment::Top, px(600.))
                 .with_uniform_item_height(px(metrics::SETTING_ROW_MIN_HEIGHT)),
+            user_panel: None,
             _subscriptions: subscriptions,
             _appearance_sub: Some(appearance_sub),
         };
@@ -331,10 +338,13 @@ impl MainWindow {
     // ---- row rendering ----------------------------------------------------
 
     fn render_sidebar(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme().clone();
         let selected = self.app.read(cx).store.selected_scope();
 
+        // Summary is the landing view (the store's initial selection); the
+        // user card above the menu opens the account panel — Scope::User
+        // deliberately has no menu item.
         let mut menu = SidebarMenu::new().children([
+            scope_item(Scope::Summary, IconName::Cpu, selected, cx),
             scope_item(Scope::Shared, IconName::Globe, selected, cx),
             scope_item(Scope::Desktop, IconName::LayoutDashboard, selected, cx),
             scope_item(Scope::Distribution, IconName::HardDrive, selected, cx),
@@ -349,64 +359,115 @@ impl MainWindow {
                 })),
         );
 
-        // Grounded environment summary (03_ENVIRONMENT_DISCOVERY.md UI
-        // details): distro · desktop · protocol, each part omitted when
-        // undetected, plus the live scan status. Partial results show as
-        // they arrive — no pretending.
-        let (summary, status_line) = {
-            let state = self.app.read(cx);
-            let summary = state
-                .environment_snapshot()
-                .map(|snapshot| snapshot.summary());
-            let status_line = match state.scan_state() {
-                ScanState::Loading { .. } => Some("Discovering environment…".to_string()),
-                ScanState::Cancelled => Some("Scan cancelled — refreshing…".to_string()),
-                ScanState::Idle => Some("Discovery pending…".to_string()),
-                ScanState::Ready => None,
-            };
-            (summary, status_line)
-        };
-
-        // The sidebar footer's h_flex leaves children unconstrained; without
-        // an explicit width a long summary renders as one clipped line.
-        // Constrain to the sidebar content width (244 − 2×12 padding) so the
-        // text wraps honestly instead of disappearing.
-        let mut environment = v_flex()
-            .w(px(metrics::SIDEBAR_WIDTH - 24.))
-            .pb_3()
-            .gap_1()
-            .child(
-                div()
-                    .text_size(px(metrics::TEXT_META))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme.muted_foreground)
-                    .child("Environment"),
-            )
-            .child(
-                div()
-                    .text_size(px(metrics::TEXT_BODY))
-                    .text_color(theme.foreground)
-                    .child(summary.unwrap_or_else(|| "Discovering environment…".to_string())),
-            );
-        if let Some(status_line) = status_line {
-            environment = environment.child(
-                div()
-                    .text_size(px(metrics::TEXT_META))
-                    .text_color(theme.muted_foreground)
-                    .child(status_line),
-            );
-        }
-
         Sidebar::new("scope-sidebar")
             .w(px(metrics::SIDEBAR_WIDTH))
             .collapsible(false)
+            .header(self.render_user_card(cx))
             .child(menu)
-            .footer(environment)
             .into_any_element()
     }
 
-    fn render_content(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    /// The sidebar's user card: the account picture (when one exists) beside
+    /// the full name, a hairline, and the username below it. Clicking it
+    /// selects Scope::User, which swaps the content area to the account
+    /// panel. The card mirrors the menu items' active/hover styling
+    /// (`sidebar_accent`), reads its identity from the fail-closed account
+    /// cache, and falls back to initials when no picture exists.
+    fn render_user_card(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
+        let selected = self.app.read(cx).store.selected_scope();
+        let active = selected == Scope::User;
+        let (full_name, username_line, avatar_name, avatar_path) = {
+            let account = self.app.read(cx).account();
+            let (full_name, avatar_name) = match &account.info {
+                Some(info) if !info.full_name.is_empty() => {
+                    (info.full_name.clone(), info.full_name.clone())
+                }
+                Some(info) => (info.username.clone(), info.username.clone()),
+                None => ("Local account".to_string(), "Local account".to_string()),
+            };
+            let username_line = account
+                .info
+                .as_ref()
+                .map(|info| format!("@{}", info.username))
+                .unwrap_or_else(|| "…".to_string());
+            (
+                full_name,
+                username_line,
+                avatar_name,
+                account.avatar.clone(),
+            )
+        };
+
+        let mut avatar = Avatar::new().name(avatar_name);
+        if let Some(path) = avatar_path {
+            avatar = avatar.src(path);
+        }
+
+        // Same highlight tokens as the menu items (sidebar/menu.rs).
+        h_flex()
+            .id("sidebar-user-card")
+            .w(px(metrics::SIDEBAR_WIDTH - 16.))
+            .items_center()
+            .gap_2()
+            .p_2()
+            .rounded(theme.radius)
+            .cursor_pointer()
+            .when(active, |card| card.bg(theme.tokens.sidebar_accent))
+            .when(!active, |card| {
+                card.hover(|card| card.bg(theme.sidebar_accent.opacity(0.8)))
+            })
+            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                this.app.update(cx, |state, cx| {
+                    state.dispatch(Command::SelectScope(Scope::User), cx);
+                    state.push_history(
+                        WindowRole::Main,
+                        format!("scope:{}", Scope::User.label()),
+                        cx,
+                    );
+                });
+            }))
+            .child(avatar.with_size(Size::Size(px(32.))))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_size(px(metrics::TEXT_META))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme.foreground)
+                            .whitespace_nowrap()
+                            .overflow_hidden()
+                            .child(full_name),
+                    )
+                    // The hairline between full name and username.
+                    .child(div().h(px(1.)).w_full().bg(theme.border))
+                    .child(
+                        div()
+                            .text_size(px(metrics::TEXT_META))
+                            .text_color(theme.muted_foreground)
+                            .whitespace_nowrap()
+                            .overflow_hidden()
+                            .child(username_line),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn render_content(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme().clone();
+        let scope = self.app.read(cx).store.selected_scope();
+        // Summary and the account panel are not registry-driven settings
+        // lists — they render their own content and return before the
+        // virtualized list machinery runs.
+        if scope == Scope::Summary {
+            return crate::ui::summary_panel::render(self.app.read(cx), &theme);
+        }
+        if scope == Scope::User {
+            return self.render_user_content(window, cx);
+        }
         let (scope, category_filter, rows): (Scope, Option<String>, Vec<Row>) = {
             let state = self.app.read(cx);
             let scope = state.store.selected_scope();
@@ -595,6 +656,20 @@ impl MainWindow {
                     .max_w(px(metrics::CONTENT_MAX_WIDTH))
                     .child(list_element),
             )
+            .into_any_element()
+    }
+
+    /// The Scope::User content: the cached account panel entity (built on
+    /// first selection — its input states need window access at creation).
+    fn render_user_content(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        if self.user_panel.is_none() {
+            let app = self.app.clone();
+            self.user_panel =
+                Some(cx.new(|cx| crate::ui::user_panel::UserAccountPanel::new(app, window, cx)));
+        }
+        self.user_panel
+            .clone()
+            .expect("built above")
             .into_any_element()
     }
 

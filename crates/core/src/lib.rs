@@ -16,6 +16,10 @@
 //!   setting ID.
 //! - [`discovery`]: read-only environment, service and installed-application
 //!   discovery (Phase 03) — typed snapshots with evidence and confidence.
+//! - [`system`]: local hardware/system facts for the Summary panel
+//!   (fail-closed /proc, /sys and GIO readers; informational only).
+//! - [`account`]: current-user identity and avatar lookup, plus own-user
+//!   changes through the AccountsService daemon (typed calls only).
 //! - [`modules`]: declarative module manifests and the registry
 //!   (Phase 04) — validated, data-only definitions, applicability and
 //!   provenance; the provider bridge binds mock values in this phase.
@@ -30,6 +34,7 @@
 //! [`command::Command`]s; they never open `/etc`, invoke `gsettings`, or edit
 //! external TOML files themselves.
 
+pub mod account;
 pub mod command;
 pub mod descriptor;
 pub mod discovery;
@@ -45,6 +50,7 @@ pub mod read;
 pub mod registry;
 pub mod search;
 pub mod state;
+pub mod system;
 pub mod value;
 pub mod window_sessions;
 pub mod write;
