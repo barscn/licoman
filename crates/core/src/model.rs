@@ -107,7 +107,8 @@ impl Store {
             registry,
             models: BTreeMap::new(),
             search_index: SearchIndex::default(),
-            selected_scope: Scope::Shared,
+            // The Summary panel is the main window's landing view.
+            selected_scope: Scope::Summary,
             selected_category: None,
             selected_app: None,
             selected_app_tab: 0,

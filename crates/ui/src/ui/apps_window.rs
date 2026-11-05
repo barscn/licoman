@@ -125,6 +125,8 @@ impl AppsWindow {
                         }
                         cx.notify();
                     }
+                    // The Applications window shows no account state.
+                    AppEvent::AccountChanged => {}
                 }
             }
         }));

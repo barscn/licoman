@@ -7,6 +7,8 @@ pub mod apps_window;
 pub mod main_window;
 pub mod preferences_window;
 pub mod setting_controls;
+pub mod summary_panel;
+pub mod user_panel;
 
 use gpui_kit::component::tag::Tag;
 use gpui_kit::component::theme::Theme;

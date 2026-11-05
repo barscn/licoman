@@ -59,7 +59,7 @@ pub const METHOD_TIMEOUT: Duration = Duration::from_secs(3);
 /// here: an unresponsive service yields [`ClientError::Timeout`] while the
 /// worker (if any) finishes or dies with its socket — reads never hang the
 /// refresh pass.
-fn call_bounded<T, F>(what: &'static str, call: F) -> Result<T, ClientError>
+pub(crate) fn call_bounded<T, F>(what: &'static str, call: F) -> Result<T, ClientError>
 where
     T: Send + 'static,
     F: FnOnce() -> Result<T, zbus::Error> + Send + 'static,

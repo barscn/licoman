@@ -10,19 +10,24 @@
 //! otherwise (04_MODULE_SCHEMA_AND_REGISTRY.md §6).
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use gpui_kit::{AnyWindowHandle, App, Context, EventEmitter, Global};
+use licoman_core::account::{AccountsClient as _, UserAccount, ZBusAccounts};
 use licoman_core::command::DispatchReport;
 use licoman_core::discovery::{
     AppListEntry, DiscoveryRun, DiscoverySources, EnvironmentSnapshot, ScanControl, ScanStage,
     ScanStatus, build_app_list,
 };
+use licoman_core::error::{ErrorKind, LicomanError};
 use licoman_core::modules::ModuleProvider;
 use licoman_core::prefs::AppearanceMode;
+use licoman_core::read::dbus::ClientError;
+use licoman_core::system::SystemFacts;
 use licoman_core::window_sessions::{OpenDecision, WindowSessions};
-use licoman_core::{Command, SettingPhase, Store, WindowRole};
+use licoman_core::{Command, Scope, SettingPhase, Store, WindowRole};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppEvent {
@@ -30,10 +35,13 @@ pub enum AppEvent {
     SettingsChanged,
     /// Licoman preferences (theme) changed.
     PreferencesChanged,
-    /// Environment discovery progressed (loading, partial or ready).
+    /// Environment discovery progressed (loading, partial or ready), or the
+    /// Summary panel's machine facts were refreshed.
     EnvironmentChanged,
     /// Module applicability changed (a reload published new availability).
     ModulesChanged,
+    /// Current-user identity, avatar or account-service status changed.
+    AccountChanged,
 }
 
 /// Where the discovery cache stands.
@@ -54,6 +62,9 @@ pub enum ScanState {
 /// deterministic app/module merge — safe metadata only.
 pub struct EnvironmentState {
     snapshot: Option<Arc<EnvironmentSnapshot>>,
+    /// Machine facts for the Summary panel (collected off the UI thread,
+    /// refreshed on Summary selection — uptime/memory go stale otherwise).
+    system: Option<Arc<SystemFacts>>,
     app_list: Vec<AppListEntry>,
     scan: ScanState,
     control: Arc<ScanControl>,
@@ -67,6 +78,7 @@ impl Default for EnvironmentState {
     fn default() -> Self {
         Self {
             snapshot: None,
+            system: None,
             app_list: Vec::new(),
             scan: ScanState::Idle,
             control: Arc::new(ScanControl::new()),
@@ -80,6 +92,48 @@ impl EnvironmentState {
     fn ingest(&mut self, run: &DiscoveryRun, scan: ScanState) {
         self.snapshot = Some(Arc::new(run.snapshot()));
         self.scan = scan;
+    }
+}
+
+/// Which account change an operation refers to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccountAction {
+    FullName,
+    Password,
+    Picture,
+}
+
+/// The account panel's visible operation state.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum AccountOp {
+    #[default]
+    Idle,
+    Busy(AccountAction),
+    /// The last change succeeded (shown until the next action).
+    Saved(AccountAction),
+    /// The last change failed; the string is the user-safe explanation.
+    Failed(AccountAction, String),
+}
+
+/// Everything the user card and account panel render, refreshed off the UI
+/// thread. Reads work on any Linux system (passwd + ~/.face); only the
+/// changes depend on the AccountsService daemon, whose availability is
+/// probed honestly (`None` = still probing).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AccountState {
+    pub info: Option<UserAccount>,
+    /// First existing avatar candidate, when any.
+    pub avatar: Option<PathBuf>,
+    /// AccountsService availability: `None` = probing,
+    /// `Some(false)` = daemon unreachable (view stays read-only).
+    pub service: Option<bool>,
+    pub op: AccountOp,
+}
+
+impl AccountState {
+    /// True while an account change is in flight (buttons disable).
+    pub fn op_busied(&self) -> bool {
+        matches!(self.op, AccountOp::Busy(_))
     }
 }
 
@@ -135,6 +189,12 @@ pub fn open_or_focus(
 pub struct AppState {
     pub store: Store,
     environment: EnvironmentState,
+    /// Current-user cache for the sidebar card and account panel.
+    account: AccountState,
+    /// Bumped per account read/op; stale results must not publish.
+    account_generation: u64,
+    /// Bumped per system-facts pass; stale collects must not publish.
+    system_generation: u64,
     /// Handle to the module registry living inside the store's provider.
     module_provider: Arc<ModuleProvider>,
     /// Held for the process lifetime; the watcher thread is event-driven and
@@ -167,11 +227,24 @@ pub struct AppState {
 
 impl EventEmitter<AppEvent> for AppState {}
 
+/// ClientError → user-safe [`LicomanError`] for account flows: the honest
+/// daemon-absent explanation when applicable, the mapped kind otherwise.
+fn account_licoman_error(error: &ClientError) -> LicomanError {
+    LicomanError::new(
+        ErrorKind::Unavailable,
+        licoman_core::account::user_message(error),
+        format!("account: {error}"),
+    )
+}
+
 impl AppState {
     pub fn new(store: Store, module_provider: Arc<ModuleProvider>) -> Self {
         Self {
             store,
             environment: EnvironmentState::default(),
+            account: AccountState::default(),
+            account_generation: 0,
+            system_generation: 0,
             module_provider,
             environment_watcher: None,
             settings_watcher: None,
@@ -238,6 +311,249 @@ impl AppState {
 
     pub fn scan_state(&self) -> ScanState {
         self.environment.scan
+    }
+
+    // ---- Summary facts + current account (read-only caches) --------------
+
+    /// The machine facts behind the Summary panel, when collected.
+    pub fn system_facts(&self) -> Option<&Arc<SystemFacts>> {
+        self.environment.system.as_ref()
+    }
+
+    /// Collect the Summary panel's facts on the background executor.
+    /// Triggered at startup and whenever the Summary scope is selected —
+    /// uptime, memory and disk usage go stale otherwise.
+    pub fn refresh_system_facts(&mut self, cx: &mut Context<Self>) {
+        self.system_generation += 1;
+        let generation = self.system_generation;
+        cx.spawn(async move |this, cx| {
+            let facts = cx
+                .background_executor()
+                .spawn(async { SystemFacts::collect() })
+                .await;
+            let _ = this.update(cx, |state, cx| {
+                if state.system_generation != generation {
+                    return; // a newer pass owns the facts now
+                }
+                state.environment.system = Some(Arc::new(facts));
+                cx.emit(AppEvent::EnvironmentChanged);
+            });
+        })
+        .detach();
+    }
+
+    /// The account cache the sidebar card and the account panel render.
+    pub fn account(&self) -> &AccountState {
+        &self.account
+    }
+
+    /// Re-read the current user, avatar and AccountsService availability on
+    /// the background executor. Runs at startup and after every change.
+    pub fn refresh_account(&mut self, cx: &mut Context<Self>) {
+        self.account_generation += 1;
+        let generation = self.account_generation;
+        cx.spawn(async move |this, cx| {
+            let detected = cx
+                .background_executor()
+                .spawn(async {
+                    let info = UserAccount::detect();
+                    let avatar = info.as_ref().and_then(UserAccount::first_avatar);
+                    (info, avatar)
+                })
+                .await;
+            // Passive probe: a FindUserById round-trip decides availability.
+            // No daemon is started; absence is an honest Some(false).
+            let service = detected
+                .0
+                .as_ref()
+                .map(|info| ZBusAccounts::default().find_user_path(info.uid).is_ok());
+            let _ = this.update(cx, |state, cx| {
+                if state.account_generation != generation {
+                    return; // a newer read/op owns the account now
+                }
+                let op = state.account.op.clone();
+                state.account = AccountState {
+                    info: detected.0,
+                    avatar: detected.1,
+                    service,
+                    op,
+                };
+                cx.emit(AppEvent::AccountChanged);
+            });
+        })
+        .detach();
+    }
+
+    /// Change the current user's full name through AccountsService.
+    pub fn set_account_full_name(&mut self, name: String, cx: &mut Context<Self>) {
+        self.run_account_change(
+            AccountAction::FullName,
+            move |client, path| {
+                client
+                    .set_real_name(path, name.trim())
+                    .map_err(|error| account_licoman_error(&error))
+            },
+            cx,
+        );
+    }
+
+    /// Change the current user's password through AccountsService
+    /// (polkit's change-own-user-data; the GUI never collects a password
+    /// for authorization).
+    pub fn set_account_password(&mut self, password: String, cx: &mut Context<Self>) {
+        self.run_account_change(
+            AccountAction::Password,
+            move |client, path| {
+                client
+                    .set_password(path, &password)
+                    .map_err(|error| account_licoman_error(&error))
+            },
+            cx,
+        );
+    }
+
+    /// Set the account picture: copy the picked image to the `~/.face`
+    /// convention (durable, works without the daemon), then point
+    /// AccountsService at it (best-effort — absent daemon is fine).
+    pub fn set_account_avatar(&mut self, picked: PathBuf, cx: &mut Context<Self>) {
+        self.run_account_change(
+            AccountAction::Picture,
+            move |client, path| {
+                let face = picked.clone();
+                if let Some(info) = UserAccount::detect() {
+                    let target = info.home.join(".face");
+                    std::fs::copy(&face, &target).map_err(|error| {
+                        LicomanError::new(
+                            ErrorKind::Io,
+                            "The picture could not be copied to ~/.face; \
+                             nothing was changed.",
+                            format!("fs::copy: {error}"),
+                        )
+                    })?;
+                    let _ = client.set_icon_file(path, &target.to_string_lossy());
+                }
+                Ok(())
+            },
+            cx,
+        );
+    }
+
+    /// Remove the account picture: delete the `~/.face` convention files
+    /// and clear AccountsService's icon (best-effort — the local removal
+    /// works even when the daemon is absent, since the files are home-owned).
+    pub fn remove_account_avatar(&mut self, cx: &mut Context<Self>) {
+        self.account.op = AccountOp::Busy(AccountAction::Picture);
+        cx.emit(AppEvent::AccountChanged);
+        self.account_generation += 1;
+        let generation = self.account_generation;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let Some(info) = UserAccount::detect() else {
+                        return Err(LicomanError::new(
+                            ErrorKind::Unavailable,
+                            "The current user could not be identified, so no \
+                             account change was attempted.",
+                            "account: user detect failed",
+                        ));
+                    };
+                    for name in [".face", ".face.icon"] {
+                        let target = info.home.join(name);
+                        if let Err(error) = std::fs::remove_file(&target)
+                            && error.kind() != std::io::ErrorKind::NotFound
+                        {
+                            return Err(LicomanError::new(
+                                ErrorKind::Io,
+                                "The picture file could not be removed; nothing \
+                                 else was changed.",
+                                format!("remove_file: {error}"),
+                            ));
+                        }
+                    }
+                    // Best-effort daemon clear (absent daemon is fine —
+                    // ~/.face is already gone and display reads it first).
+                    let client = ZBusAccounts::default();
+                    if let Ok(user_path) = client.find_user_path(info.uid) {
+                        let _ = client.set_icon_file(&user_path, "");
+                    }
+                    Ok(())
+                })
+                .await;
+            let _ = this.update(cx, |state, cx| {
+                state.publish_account_result(AccountAction::Picture, generation, result, cx)
+            });
+        })
+        .detach();
+    }
+
+    /// Record a picture-pick failure that happened outside the change flow
+    /// (the portal round-trip failed before any copy/set was attempted).
+    pub fn fail_account_picture(&mut self, message: String, cx: &mut Context<Self>) {
+        self.account.op = AccountOp::Failed(AccountAction::Picture, message);
+        cx.emit(AppEvent::AccountChanged);
+    }
+
+    /// Publish one finished account operation: Saved + re-read, or Failed
+    /// with the error's user-safe message. Stale generations are dropped.
+    fn publish_account_result(
+        &mut self,
+        action: AccountAction,
+        generation: u64,
+        result: Result<(), LicomanError>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.account_generation != generation {
+            return; // a newer op owns the account now
+        }
+        match result {
+            Ok(()) => {
+                self.account.op = AccountOp::Saved(action);
+                cx.emit(AppEvent::AccountChanged);
+                self.refresh_account(cx);
+            }
+            Err(error) => {
+                self.account.op = AccountOp::Failed(action, error.user_message.clone());
+                cx.emit(AppEvent::AccountChanged);
+            }
+        }
+    }
+
+    /// Shared account-change flow: show Busy, locate the own-user object and
+    /// run the typed change on the background executor, then publish
+    /// Saved/Failed with a user-safe message and re-read the account.
+    fn run_account_change<F>(&mut self, action: AccountAction, change: F, cx: &mut Context<Self>)
+    where
+        F: FnOnce(&ZBusAccounts, &str) -> Result<(), LicomanError> + Send + 'static,
+    {
+        self.account.op = AccountOp::Busy(action);
+        cx.emit(AppEvent::AccountChanged);
+        self.account_generation += 1;
+        let generation = self.account_generation;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let client = ZBusAccounts::default();
+                    let Some(info) = UserAccount::detect() else {
+                        return Err(LicomanError::new(
+                            ErrorKind::Unavailable,
+                            "The current user could not be identified, so no \
+                             account change was attempted.",
+                            "account: user detect failed",
+                        ));
+                    };
+                    let path = client
+                        .find_user_path(info.uid)
+                        .map_err(|error| account_licoman_error(&error))?;
+                    change(&client, &path)
+                })
+                .await;
+            let _ = this.update(cx, |state, cx| {
+                state.publish_account_result(action, generation, result, cx)
+            });
+        })
+        .detach();
     }
 
     /// Publish a snapshot to the environment cache and re-evaluate module
@@ -552,6 +868,11 @@ impl AppState {
     /// Forward a typed command to the core store and emit the matching
     /// events. This is the only path from UI intent to domain mutation.
     pub fn dispatch(&mut self, command: Command, cx: &mut Context<Self>) -> DispatchReport {
+        // Opening the Summary panel refreshes its volatile facts (uptime,
+        // memory, disk usage) — a background read, not a mutation.
+        if matches!(command, Command::SelectScope(Scope::Summary)) {
+            self.refresh_system_facts(cx);
+        }
         let report = self.store.dispatch(command);
         if report.settings_changed {
             cx.emit(AppEvent::SettingsChanged);

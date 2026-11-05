@@ -533,6 +533,11 @@ fn main() {
                 app.update(cx, |state, cx| {
                     state.ensure_environment_watcher(cx);
                     state.start_discovery(cx);
+                    // Summary facts and the current-user cache are read
+                    // off the UI thread at startup (the Summary panel is
+                    // the landing view; the sidebar shows the user card).
+                    state.refresh_system_facts(cx);
+                    state.refresh_account(cx);
                 });
                 // Capture affordance for LIVE-state screenshots (no demo
                 // fixture, no locking — discovery and reads stay live):
@@ -548,9 +553,11 @@ fn main() {
                     let app_id = category.to_string();
                     let category = category.to_string();
                     let scope = match scope {
+                        "Summary" => Scope::Summary,
                         "Shared" => Scope::Shared,
                         "Desktop" => Scope::Desktop,
                         "Distribution" => Scope::Distribution,
+                        "User" => Scope::User,
                         _ => Scope::Shared,
                     };
                     cx.spawn(async move |cx| {

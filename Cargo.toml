@@ -14,7 +14,11 @@ licoman-ui = { path = "crates/ui" }
 gpui-kit = "0.8"
 serde = { version = "1", features = ["derive"] }
 toml = "0.9"
-ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
+# Pinned to keep the ashpd feature set unified with gpui-base exactly:
+# `async-io` (never `tokio` — both together are a compile_error!) plus only
+# the interfaces Licoman uses: `settings` (gpui-base reduced-motion) and
+# `file_chooser` (the account panel's picture picker).
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings", "file_chooser"] }
 # Filesystem notifications for discovery-cache invalidation (Phase 03).
 # Deliberately in the UI adapter, not the core: licoman-core stays
 # dependency-free and the adapter owns all timing/watching (D26).
