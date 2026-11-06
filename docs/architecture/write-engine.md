@@ -142,9 +142,9 @@ operation log, key removal, and absent-key insertion.
 - In-root symlinks are followed on write (link preserved, canonical target
   updated) — decision D47, revisit before live writes.
 - No multi-file atomicity (fundamentally unavailable; disclosed per row).
-- The Applications window renders statuses but hosts no apply bar; staged
-  edits apply from the main window (both windows share the store and stay
-  synchronized through the same events).
+- The Applications panel shares the main window's apply bar (single-window
+  IA): staged app edits surface in the same pending-changes bar as every
+  other scope.
 
 ## Phase 07 — the live write path (D49–D53)
 
@@ -190,6 +190,6 @@ Apply/Confirm. `cargo test`/CI never construct a live engine.
 - GSettings writes require a positively identified GNOME session (the gate
   is deliberately closed on unknown desktops).
 - No multi-file atomicity (fundamentally unavailable; disclosed per row).
-- The Applications window renders statuses but hosts no apply bar; staged
-  edits apply from the main window (both windows share the store and stay
-  synchronized through the same events).
+- The Applications panel shares the main window's apply bar (single-window
+  IA): staged app edits surface in the same pending-changes bar as every
+  other scope.

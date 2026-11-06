@@ -66,7 +66,7 @@ embedded into the binary at compile time.
 |---|---|---|---|
 | `schema_version` | integer | yes | Module file format version. This build supports **1** only; other versions are rejected with an explicit diagnostic. |
 | `id` | string | yes | Namespaced, immutable module id. Must start with the scope prefix (`shared.` / `desktop.` / `distro.` / `app.`) and have at least two dot-separated lowercase segments. |
-| `scope` | string | yes | `shared`, `desktop`, `distribution` or `application`. `application` modules surface in the Applications window only. |
+| `scope` | string | yes | `shared`, `desktop`, `distribution` or `application`. `application` modules surface in the Applications view only. |
 | `title` | string | yes | 1–200 characters. |
 | `description` | string | no | Up to 1000 characters. |
 | `category` | string | yes | Navigation grouping (1–64 chars); groups the module's settings in the scope page. |

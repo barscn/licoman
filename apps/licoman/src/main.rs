@@ -546,8 +546,10 @@ fn main() {
                 // it never changes setting state.
                 let nav = std::env::var("LICOMAN_CAPTURE_NAV").unwrap_or_default();
                 if let Some((scope, category)) = nav.split_once('/') {
-                    // "Application/<app-id>" opens the Applications window and
-                    // selects the app; other scopes navigate the main window.
+                    // "Application/<module-id>" selects the app in the apps
+                    // panel (single-window IA); "Settings/…" lands on the
+                    // settings panel; other scopes navigate the main window's
+                    // settings lists.
                     let app_for_nav = app.clone();
                     let application_scope = scope == "Application";
                     let app_id = category.to_string();
@@ -558,61 +560,42 @@ fn main() {
                         "Desktop" => Scope::Desktop,
                         "Distribution" => Scope::Distribution,
                         "User" => Scope::User,
+                        "Application" => Scope::Application,
+                        "Settings" => Scope::Settings,
                         _ => Scope::Shared,
                     };
                     cx.spawn(async move |cx| {
                         cx.background_executor()
                             .timer(std::time::Duration::from_millis(4500))
                             .await;
-                        if application_scope {
-                            // Same shape as the app-detail demo hook: the
-                            // env names a MODULE id ("Application/app.mpv");
-                            // the identity resolves from the merged app list
-                            // once discovery published it, SelectApp runs in
-                            // its own update (the apps window reads AppState
-                            // at creation — a read inside the same update
-                            // would panic), and the apps window is notified
-                            // explicitly (a programmatic dispatch has no
-                            // click listener).
-                            // AsyncApp::update returns the closure's value.
-                            let (handle, apps_window) = cx.update(|app| {
-                                windows::open_apps_window_returning_entity(&app_for_nav, app)
-                            });
-                            cx.update(|app| {
-                                app.global_mut::<licoman_ui::app_state::WindowRegistry>()
-                                    .set_handle(licoman_core::WindowRole::Applications, handle);
-                            });
-                            app_for_nav.update(cx, |state, cx| {
+                        // The identity resolves from the merged app list once
+                        // discovery published it; SelectApp runs in the same
+                        // update as SelectScope (the panel reads the store at
+                        // draw time).
+                        app_for_nav.update(cx, |state, cx| {
+                            let fields = if application_scope {
+                                vec![("module", app_id.clone())]
+                            } else {
+                                vec![("category", category.clone())]
+                            };
+                            licoman_core::log::info(
+                                "licoman::capture",
+                                "capture navigation dispatched",
+                                &fields,
+                            );
+                            state.dispatch(Command::SelectScope(scope), cx);
+                            if application_scope {
                                 let identity = state.select_identity_for_module(&app_id.clone());
-                                licoman_core::log::info(
-                                    "licoman::capture",
-                                    "capture navigation dispatched",
-                                    &[
-                                        ("module", app_id.clone()),
-                                        ("identity", identity.clone().unwrap_or_default()),
-                                    ],
-                                );
                                 state.dispatch(Command::SelectApp { id: identity }, cx);
-                            });
-                            apps_window.update(cx, |_this, cx| {
-                                cx.notify();
-                            });
-                        } else {
-                            app_for_nav.update(cx, |state, cx| {
-                                licoman_core::log::info(
-                                    "licoman::capture",
-                                    "capture navigation dispatched",
-                                    &[("category", category.clone())],
-                                );
-                                state.dispatch(Command::SelectScope(scope), cx);
+                            } else {
                                 state.dispatch(Command::SelectCategory(Some(category.clone())), cx);
-                                // Navigation commands report settings_changed:
-                                // false, so the windows must be notified
-                                // explicitly (interactive clicks do this through
-                                // their listeners; a programmatic hook does not).
-                                cx.notify();
-                            });
-                        }
+                            }
+                            // Navigation commands report settings_changed:
+                            // false, so the window must be notified
+                            // explicitly (interactive clicks do this through
+                            // their listeners; a programmatic hook does not).
+                            cx.notify();
+                        });
                     })
                     .detach();
                 }
@@ -728,8 +711,8 @@ fn main() {
             cx.bind_keys([
                 KeyBinding::new("ctrl-k", OpenSearch, Some("MainWindow")),
                 KeyBinding::new("ctrl-f", FocusSearch, Some("MainWindow")),
-                KeyBinding::new("ctrl-k", OpenSearch, Some("AppsWindow")),
-                KeyBinding::new("ctrl-f", FocusSearch, Some("AppsWindow")),
+                KeyBinding::new("ctrl-k", OpenSearch, Some("AppsPanel")),
+                KeyBinding::new("ctrl-f", FocusSearch, Some("AppsPanel")),
                 KeyBinding::new("escape", DismissPalette, Some("SearchPalette")),
                 KeyBinding::new("down", PaletteNext, Some("SearchPalette")),
                 KeyBinding::new("up", PalettePrev, Some("SearchPalette")),
@@ -770,12 +753,16 @@ fn main() {
                 || demo == "app-detail"
                 || demo == "reads-apps"
             {
-                let (handle, apps_window) = windows::open_apps_window_returning_entity(&app, cx);
+                // Land in the Applications panel inside the main window
+                // (single-window IA — no second window anymore).
                 if demo == "all-apps" {
-                    apps_window.update(cx, |this, _cx| this.demo_show_all());
+                    main_window.update(cx, |this, cx| this.demo_show_all_apps(cx));
+                } else {
+                    app.update(cx, |state, cx| {
+                        state.dispatch(Command::SelectScope(Scope::Application), cx);
+                    });
+                    main_window.update(cx, |_this, cx| cx.notify());
                 }
-                cx.global_mut::<WindowRegistry>()
-                    .set_handle(licoman_core::WindowRole::Applications, handle);
                 if demo == "app-detail" || demo == "reads-apps" {
                     // Select an installed module-backed app so the detail
                     // pane shows the registry-driven tabs and rows. Wait for
@@ -791,7 +778,7 @@ fn main() {
                         "app.mpv"
                     };
                     let app_for_detail = app.clone();
-                    let window_for_detail = apps_window.clone();
+                    let main_for_detail = main_window.downgrade();
                     cx.spawn(async move |cx| {
                         cx.background_executor()
                             .timer(std::time::Duration::from_millis(4000))
@@ -800,7 +787,7 @@ fn main() {
                             let identity = state.select_identity_for_module(target);
                             state.dispatch(Command::SelectApp { id: identity }, cx);
                         });
-                        window_for_detail.update(cx, |_this, cx| {
+                        let _ = main_for_detail.update(cx, |_this, cx| {
                             cx.notify();
                         });
                     })
@@ -808,9 +795,10 @@ fn main() {
                 }
             }
             if demo == "prefs" {
-                let handle = windows::open_preferences_window(&app, cx);
-                cx.global_mut::<WindowRegistry>()
-                    .set_handle(licoman_core::WindowRole::Preferences, handle);
+                app.update(cx, |state, cx| {
+                    state.dispatch(Command::SelectScope(Scope::Settings), cx);
+                });
+                main_window.update(cx, |_this, cx| cx.notify());
             }
         });
 }

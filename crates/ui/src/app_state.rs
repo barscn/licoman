@@ -26,7 +26,7 @@ use licoman_core::modules::ModuleProvider;
 use licoman_core::prefs::AppearanceMode;
 use licoman_core::read::dbus::ClientError;
 use licoman_core::system::SystemFacts;
-use licoman_core::window_sessions::{OpenDecision, WindowSessions};
+use licoman_core::window_sessions::WindowSessions;
 use licoman_core::{Command, Scope, SettingPhase, Store, WindowRole};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,9 +137,10 @@ impl AccountState {
     }
 }
 
-/// GPUI-side window registry: real window handles per role, with the
-/// open/focus/history decisions delegated to the core
-/// [`WindowSessions`] model (unit tested headless).
+/// GPUI-side window registry: the main window's handle plus the navigation
+/// history from the core [`WindowSessions`] model (unit tested headless).
+/// Licoman is single-window: Applications and Settings render as content-area
+/// panels, so there is no open-or-focus machinery anymore.
 #[derive(Default)]
 pub struct WindowRegistry {
     pub sessions: WindowSessions,
@@ -161,29 +162,6 @@ impl WindowRegistry {
         self.handles.remove(&role);
         self.sessions.closed(role);
     }
-}
-
-/// Single-instance open-or-focus for a window role. If the recorded handle is
-/// stale (the window was closed some other way), the session model is
-/// corrected and a fresh window opens.
-pub fn open_or_focus(
-    role: WindowRole,
-    open_new: impl FnOnce(&mut App) -> AnyWindowHandle,
-    cx: &mut App,
-) {
-    let decision = cx
-        .global_mut::<WindowRegistry>()
-        .sessions
-        .request_open(role);
-    if decision == OpenDecision::FocusExisting {
-        let handle = cx.global::<WindowRegistry>().handle(role);
-        if focus_window(&handle, cx) {
-            return;
-        }
-        cx.global_mut::<WindowRegistry>().forget(role);
-    }
-    let handle = open_new(cx);
-    cx.global_mut::<WindowRegistry>().set_handle(role, handle);
 }
 
 pub struct AppState {
@@ -1015,18 +993,5 @@ pub fn system_theme_mode(
         gpui_kit::WindowAppearance::Light | gpui_kit::WindowAppearance::VibrantLight => {
             ThemeMode::Light
         }
-    }
-}
-
-/// Focus an existing window if present; returns whether it existed and was
-/// still alive.
-pub fn focus_window(handle: &Option<AnyWindowHandle>, cx: &mut App) -> bool {
-    match handle {
-        Some(h) => h
-            .update(cx, |_view, window, _cx| {
-                window.activate_window();
-            })
-            .is_ok(),
-        None => false,
     }
 }

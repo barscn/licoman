@@ -1,6 +1,7 @@
-//! Window constructors: geometry, titles and decorations per the design spec
-//! (01_DESIGN_SYSTEM.md §4). Both native windows share theme and state but
-//! keep their own selection and search.
+//! The main window constructor: geometry, title and decorations per the
+//! design spec (01_DESIGN_SYSTEM.md §4). Licoman is a single-window app —
+//! Applications and Settings render as panels inside the main window's
+//! content area, so this is the only native window the UI ever opens.
 
 use gpui_kit::component::TitleBar;
 use gpui_kit::{
@@ -10,9 +11,7 @@ use gpui_kit::{
 
 use crate::app_state::AppState;
 use crate::theme::metrics;
-use crate::ui::apps_window::AppsWindow;
 use crate::ui::main_window::MainWindow;
-use crate::ui::preferences_window::PreferencesWindow;
 
 pub fn window_options(size: Size<Pixels>, min: Size<Pixels>, title: &'static str) -> WindowOptions {
     WindowOptions {
@@ -53,46 +52,4 @@ pub fn open_main_window(
     )
     .expect("failed to open main window");
     (handle, entity)
-}
-
-pub fn open_apps_window(app: &Entity<AppState>, cx: &mut App) -> AnyWindowHandle {
-    open_apps_window_returning_entity(app, cx).0
-}
-
-/// Like [`open_apps_window`] but also returns the window entity, for demo
-/// hooks that need to adjust view state after opening.
-pub fn open_apps_window_returning_entity(
-    app: &Entity<AppState>,
-    cx: &mut App,
-) -> (AnyWindowHandle, Entity<AppsWindow>) {
-    let app = app.clone();
-    let (handle, entity) = gpui_kit::open_window(
-        window_options(
-            metrics::APPS_WINDOW_SIZE,
-            metrics::APPS_WINDOW_MIN,
-            "Applications — Licoman",
-        ),
-        cx,
-        |window, cx| cx.new(|cx| AppsWindow::new(app, window, cx)),
-    )
-    .expect("failed to open applications window");
-    (handle, entity)
-}
-
-pub fn open_preferences_window(app: &Entity<AppState>, cx: &mut App) -> AnyWindowHandle {
-    let app = app.clone();
-    let (handle, _) = gpui_kit::open_window(
-        window_options(
-            metrics::PREFS_WINDOW_SIZE,
-            Size {
-                width: px(520.),
-                height: px(360.),
-            },
-            "Licoman Preferences",
-        ),
-        cx,
-        |window, cx| cx.new(|cx| PreferencesWindow::new(app, window, cx)),
-    )
-    .expect("failed to open preferences window");
-    handle
 }

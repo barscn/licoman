@@ -9,9 +9,9 @@ actions!(
         OpenSearch,
         /// Focus the current window's search field (Ctrl+F).
         FocusSearch,
-        /// Open or focus the Licoman Preferences window (Ctrl+,).
+        /// Show Licoman's Settings panel in the content area (Ctrl+,).
         OpenPreferences,
-        /// Open or focus the Applications window.
+        /// Show the Applications panel in the content area.
         OpenApplications,
         /// Dismiss the search palette (Esc).
         DismissPalette,

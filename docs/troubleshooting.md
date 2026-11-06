@@ -70,7 +70,7 @@ service stops.
 
 Licoman writes only its own
 `$XDG_CONFIG_HOME/licoman/preferences.toml`. A corrupt file falls back to
-the Dark default with a diagnostic in the Preferences window; delete the
+the Dark default with a diagnostic in the Settings view; delete the
 file to regenerate it. No other file is ever touched without the
 explicit write pipeline (conflict check, backup, verification — see
 `docs/configuration-safety.md`).

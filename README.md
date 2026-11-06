@@ -57,7 +57,8 @@ changed without an explicit action from you.
 
 - **Four scopes, one window** — Shared/system capabilities, Desktop
   environment settings (GNOME/GSettings, Xfce/Xfconf, Hyprland diagnostics),
-  Distribution information, and a dedicated Applications window. Every
+  Distribution information, and an Applications view — all rendered in the
+  same window with slide transitions between content views. Every
   unsupported target stays visible with an honest integration-status
   explanation.
 - **Real read backends** — GSettings/dconf (schema defaults, dconf

@@ -1,8 +1,12 @@
 # Using Licoman
 
+Licoman is a single-window app: every view — including Applications and
+Settings — renders in the main window's content area, and switching views
+slides the pane in with a short animation.
+
 ## Scopes
 
-The main window's sidebar groups everything Licoman knows about into four
+The main window's sidebar groups everything Licoman knows about into these
 scopes:
 
 - **Shared** — system-wide capabilities (appearance, power, audio,
@@ -12,15 +16,14 @@ scopes:
   actually detected.
 - **Distribution** — distribution-level information. Privileged operations
   (package management, services, firewall) are disabled by design.
-- **Applications** — opens the dedicated Applications window.
+- **Applications** — the applications view in the content area.
 
-## The Applications window
+## The Applications view
 
-The Applications window is a separate native window: the installed
-application list (with filter) on the left, the selected application's
-settings on the right. Applications Licoman does not support yet stay
-visible with a real integration-status explanation — they are never
-hidden just because no module exists.
+The Applications view shows the installed application list (with filter) on
+the left and the selected application's settings on the right. Applications
+Licoman does not support yet stay visible with a real integration-status
+explanation — they are never hidden just because no module exists.
 
 ## Reading values
 
@@ -49,21 +52,23 @@ is shown as unavailable with the reason, never replaced by a guess.
 `Ctrl+K` (or the header search) opens the global palette across **all**
 scopes and applications — 1,000+ settings are searched from a
 pre-computed index in well under a millisecond. Palette hits in the
-Applications scope navigate into the Applications window.
+Applications scope navigate into the Applications view.
 
-## Theme
+## Settings
 
-Preferences → Appearance: **Dark** (first-run default), **Light** and
-**System** (follows the desktop preference via the settings portal).
-Theme changes apply to every open Licoman window immediately, without a
-restart and without losing state.
+The gear button in the title bar (or `Ctrl+,`) shows Licoman's own
+**Settings** view in the content area: appearance (**Dark** — the
+first-run default, **Light**, and **System**, which follows the desktop
+preference via the settings portal), preferences-file diagnostics and the
+About section. Theme changes apply immediately, without a restart and
+without losing state.
 
 ## Keyboard
 
 The interface is keyboard-reachable (tab navigation through rows,
-controls and dialogs; the palette is fully keyboard-driven). Some
-multi-window flows still need verification with assistive tools on your
-distribution — see [design/accessibility.md](design/accessibility.md).
+controls and dialogs; the palette is fully keyboard-driven). Some flows
+still need verification with assistive tools on your distribution — see
+[design/accessibility.md](design/accessibility.md).
 
 ## Privacy
 

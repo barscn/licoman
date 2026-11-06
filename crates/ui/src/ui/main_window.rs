@@ -5,6 +5,9 @@
 //! hard-coded here. Rendering reads owned snapshots from the core store;
 //! every intent goes through `AppState::dispatch` with a typed command.
 
+use std::time::Duration;
+
+use gpui_kit::base::animation::{EffectTransition, ease_out_cubic};
 use gpui_kit::component::TitleBar;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -13,9 +16,9 @@ use gpui_kit::component::{ActiveTheme as _, Disableable as _, Sizable as _, h_fl
 use gpui_kit::component::{Icon, IconName, WindowExt as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, AppContext, ClickEvent, Context, Entity, FontWeight, MouseButton,
-    MouseDownEvent, ParentElement as _, Render, SharedString, Styled, Subscription, Window, div,
-    px,
+    AnyElement, App, AppContext, ClickEvent, Context, ElementId, Entity, FontWeight, MouseButton,
+    MouseDownEvent, ParentElement as _, Pixels, Render, SharedString, Styled, Subscription, Window,
+    div, px,
 };
 use gpui_kit::{
     Focusable as _, InteractiveElement as _, IntoElement as _, StatefulInteractiveElement as _,
@@ -26,7 +29,7 @@ use licoman_core::state::SettingPhase;
 use licoman_core::{Command, SettingModel, WindowRole};
 
 use crate::actions::*;
-use crate::app_state::{AppEvent, AppState, open_or_focus};
+use crate::app_state::{AppEvent, AppState};
 use crate::theme::metrics;
 use crate::ui::setting_controls::ControlSet;
 use crate::ui::{OptionIntoAny as _, read_only_value, setting_row, window_heading};
@@ -116,6 +119,20 @@ pub struct MainWindow {
     /// The account panel entity for Scope::User, built lazily on first
     /// selection (its input states need window access at creation).
     user_panel: Option<Entity<crate::ui::user_panel::UserAccountPanel>>,
+    /// The apps panel entity for Scope::Application, built lazily on first
+    /// selection (same creation constraint as `user_panel`).
+    apps_panel: Option<Entity<crate::ui::apps_panel::AppsPanel>>,
+    /// Parked `LICOMAN_DEMO=all-apps` request: the demo hook runs at startup
+    /// without window access, so the flag is consumed when the apps panel is
+    /// first built.
+    pending_show_all_apps: bool,
+    /// Content-area transition state: `last_content_scope` drives the slide
+    /// direction, `content_epoch` is bumped on every scope change and keys
+    /// the animation's element id so it re-triggers, and `slide_from` is the
+    /// offset the pane slides in from (±24 px by sidebar order).
+    content_epoch: u64,
+    last_content_scope: Option<Scope>,
+    slide_from: Pixels,
     _subscriptions: Vec<Subscription>,
     _appearance_sub: Option<Subscription>,
 }
@@ -199,6 +216,9 @@ impl MainWindow {
             });
         });
 
+        // The landing view renders without an entrance animation; the epoch
+        // only moves once the user navigates.
+        let initial_scope = app.read(cx).store.selected_scope();
         let mut this = Self {
             app,
             header_search,
@@ -219,6 +239,11 @@ impl MainWindow {
             list_state: gpui_kit::ListState::new(0, gpui_kit::ListAlignment::Top, px(600.))
                 .with_uniform_item_height(px(metrics::SETTING_ROW_MIN_HEIGHT)),
             user_panel: None,
+            apps_panel: None,
+            pending_show_all_apps: false,
+            content_epoch: 0,
+            last_content_scope: Some(initial_scope),
+            slide_from: px(24.),
             _subscriptions: subscriptions,
             _appearance_sub: Some(appearance_sub),
         };
@@ -312,14 +337,20 @@ impl MainWindow {
             .cloned();
         if let Some(hit) = picked {
             if hit.scope == Scope::Application {
-                // Application settings navigate into the Applications window
-                // (00_START_HERE.md IA); selection is by stable identity.
+                // Application settings navigate into the apps panel in the
+                // content area (single-window IA); selection is by stable
+                // identity.
                 let module_id = hit.module_id.clone();
                 self.app.update(cx, |state, cx| {
                     let identity = state.select_identity_for_module(&module_id);
+                    state.dispatch(Command::SelectScope(Scope::Application), cx);
                     state.dispatch(Command::SelectApp { id: identity }, cx);
+                    state.push_history(
+                        WindowRole::Main,
+                        format!("scope:{}", Scope::Application.label()),
+                        cx,
+                    );
                 });
-                self.open_applications_window(cx);
             } else {
                 self.app.update(cx, |state, cx| {
                     state.dispatch(Command::SelectScope(hit.scope), cx);
@@ -342,22 +373,15 @@ impl MainWindow {
 
         // Summary is the landing view (the store's initial selection); the
         // user card above the menu opens the account panel — Scope::User
-        // deliberately has no menu item.
-        let mut menu = SidebarMenu::new().children([
+        // deliberately has no menu item. Applications is a plain scope now:
+        // its panel renders in the content area like every other view.
+        let menu = SidebarMenu::new().children([
             scope_item(Scope::Summary, IconName::Cpu, selected, cx),
             scope_item(Scope::Shared, IconName::Globe, selected, cx),
             scope_item(Scope::Desktop, IconName::LayoutDashboard, selected, cx),
             scope_item(Scope::Distribution, IconName::HardDrive, selected, cx),
+            scope_item(Scope::Application, IconName::Inbox, selected, cx),
         ]);
-
-        // Applications is an action that opens/focuses the dedicated window.
-        menu = menu.child(
-            SidebarMenuItem::new("Applications")
-                .icon(IconName::Inbox)
-                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                    this.open_applications_window(cx);
-                })),
-        );
 
         Sidebar::new("scope-sidebar")
             .w(px(metrics::SIDEBAR_WIDTH))
@@ -459,14 +483,20 @@ impl MainWindow {
     fn render_content(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let scope = self.app.read(cx).store.selected_scope();
-        // Summary and the account panel are not registry-driven settings
-        // lists — they render their own content and return before the
-        // virtualized list machinery runs.
+        // Summary, the account panel, the apps panel and the settings panel
+        // are not registry-driven settings lists — they render their own
+        // content and return before the virtualized list machinery runs.
         if scope == Scope::Summary {
             return crate::ui::summary_panel::render(self.app.read(cx), &theme);
         }
         if scope == Scope::User {
             return self.render_user_content(window, cx);
+        }
+        if scope == Scope::Application {
+            return self.render_apps_content(window, cx);
+        }
+        if scope == Scope::Settings {
+            return crate::ui::preferences_panel::render(&self.app, cx);
         }
         let (scope, category_filter, rows): (Scope, Option<String>, Vec<Row>) = {
             let state = self.app.read(cx);
@@ -670,6 +700,87 @@ impl MainWindow {
         self.user_panel
             .clone()
             .expect("built above")
+            .into_any_element()
+    }
+
+    /// The Scope::Application content: the cached apps panel entity (same
+    /// lazy-build pattern as `render_user_content`).
+    fn render_apps_content(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        self.ensure_apps_panel(window, cx);
+        self.apps_panel
+            .clone()
+            .expect("built above")
+            .into_any_element()
+    }
+
+    fn ensure_apps_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.apps_panel.is_none() {
+            let app = self.app.clone();
+            self.apps_panel =
+                Some(cx.new(|cx| crate::ui::apps_panel::AppsPanel::new(app, window, cx)));
+            // The LICOMAN_DEMO=all-apps hook runs at startup without window
+            // access, so it parks its request here instead.
+            if self.pending_show_all_apps
+                && let Some(panel) = self.apps_panel.as_ref()
+            {
+                panel.update(cx, |panel, _cx| panel.demo_show_all());
+                self.pending_show_all_apps = false;
+            }
+        }
+    }
+
+    /// Switch the content area to `scope` and record the navigation. Used by
+    /// entry points without a click listener of their own (gear button,
+    /// action bindings); the sidebar items inline the same two calls.
+    fn select_scope(&mut self, scope: Scope, cx: &mut Context<Self>) {
+        self.app.update(cx, |state, cx| {
+            state.dispatch(Command::SelectScope(scope), cx);
+            state.push_history(WindowRole::Main, format!("scope:{}", scope.label()), cx);
+        });
+        cx.notify();
+    }
+
+    /// The content area with the slide transition applied. Every scope
+    /// change bumps an epoch that keys the animation's element id, so the
+    /// incoming pane slides in from the direction of the newly selected
+    /// sidebar item (sidebar order) and fades in. The clip wrapper keeps the
+    /// moving pane from painting over the sidebar; the first paint renders
+    /// without an entrance animation.
+    fn render_animated_content(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let scope = self.app.read(cx).store.selected_scope();
+        if self.last_content_scope != Some(scope) {
+            if let Some(previous) = self.last_content_scope {
+                self.slide_from = if scope_rank(scope) > scope_rank(previous) {
+                    px(24.)
+                } else {
+                    px(-24.)
+                };
+                self.content_epoch += 1;
+            }
+            self.last_content_scope = Some(scope);
+        }
+        let wrapper = v_flex()
+            .flex_1()
+            .min_h_0()
+            // Clip the slide so the moving pane never paints over the
+            // sidebar.
+            .overflow_hidden()
+            .child(self.render_content(window, cx));
+        if self.content_epoch == 0 {
+            return wrapper.into_any_element();
+        }
+        EffectTransition::new(Duration::from_millis(200))
+            .ease(ease_out_cubic)
+            .slide_x(self.slide_from, px(0.))
+            .fade(0.0, 1.0)
+            .apply(
+                wrapper,
+                ElementId::NamedInteger("content-slide".into(), self.content_epoch),
+            )
             .into_any_element()
     }
 
@@ -1037,22 +1148,29 @@ impl MainWindow {
         .into_any()
     }
 
-    fn open_applications_window(&mut self, cx: &mut Context<Self>) {
-        let app = self.app.clone();
-        open_or_focus(
-            WindowRole::Applications,
-            move |cx| crate::windows::open_apps_window(&app, cx),
-            cx,
-        );
+    /// Demo hook (`LICOMAN_DEMO=all-apps`): land in the Applications panel
+    /// with the "All installed" view selected. The panel does not exist yet
+    /// at startup, so the request parks in `pending_show_all_apps` and is
+    /// consumed when the panel is first built.
+    pub fn demo_show_all_apps(&mut self, cx: &mut Context<Self>) {
+        self.pending_show_all_apps = true;
+        self.select_scope(Scope::Application, cx);
     }
+}
 
-    fn open_preferences_window(&mut self, cx: &mut Context<Self>) {
-        let app = self.app.clone();
-        open_or_focus(
-            WindowRole::Preferences,
-            move |cx| crate::windows::open_preferences_window(&app, cx),
-            cx,
-        );
+/// Sidebar-order rank of a scope: the slide direction is derived from the
+/// rank difference, so content entering from a lower sidebar item slides in
+/// from the left and from a higher one from the right. Bespoke scopes
+/// (account panel, settings) rank after the settings universes.
+fn scope_rank(scope: Scope) -> usize {
+    match scope {
+        Scope::Summary => 0,
+        Scope::Shared => 1,
+        Scope::Desktop => 2,
+        Scope::Distribution => 3,
+        Scope::Application => 4,
+        Scope::User => 5,
+        Scope::Settings => 6,
     }
 }
 
@@ -1856,10 +1974,10 @@ impl Render for MainWindow {
                 window.focus(&handle, cx);
             }))
             .on_action(cx.listener(|this, _: &OpenPreferences, _window, cx| {
-                this.open_preferences_window(cx);
+                this.select_scope(Scope::Settings, cx);
             }))
             .on_action(cx.listener(|this, _: &OpenApplications, _window, cx| {
-                this.open_applications_window(cx);
+                this.select_scope(Scope::Application, cx);
             }))
             .on_action(cx.listener(|this, _: &DismissPalette, window, cx| {
                 if this.palette_open {
@@ -1905,9 +2023,9 @@ impl Render for MainWindow {
                                 .icon(IconName::Settings)
                                 .ghost()
                                 .compact()
-                                .tooltip("Licoman Preferences (Ctrl+,)")
+                                .tooltip("Settings (Ctrl+,)")
                                 .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                                    this.open_preferences_window(cx);
+                                    this.select_scope(Scope::Settings, cx);
                                 })),
                         ),
                 ),
@@ -1927,7 +2045,7 @@ impl Render for MainWindow {
                             .border_l_1()
                             .border_color(theme.border)
                             .bg(theme.background)
-                            .child(self.render_content(window, cx))
+                            .child(self.render_animated_content(window, cx))
                             .children(self.render_apply_bar(cx)),
                     ),
             )

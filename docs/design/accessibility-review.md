@@ -28,7 +28,7 @@ state rule (fail closed) is what makes this checkable.
 ## Keyboard
 
 - The global palette (Ctrl+K) is fully keyboard-driven: type, arrow, Enter
-  navigates into scopes or the Applications window (implemented in Phase
+  navigates into scopes or the Applications view (implemented in Phase
   03; exercised by the demo hooks).
 - Tab/keyboard traversal across rows, controls and dialogs is provided by
   the gpui focus system and the component set's focus handling; the

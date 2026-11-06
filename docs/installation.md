@@ -77,7 +77,7 @@ sudo pacman -S --needed \
 ## First run
 
 - The theme defaults to **Dark**; Light and System are selectable in the
-  Preferences window and persist across restarts.
+  Settings view (gear button or Ctrl+,) and persist across restarts.
 - Discovery runs at startup and stays passive: Licoman reads, it never
   starts or installs services.
 - Every write is explicit: an Apply (and, for higher-risk rows, a

@@ -26,11 +26,11 @@ is realized in code and where deliberate deviations were taken.
 | Product preferences | `apps/licoman/src/prefs.rs` (`$XDG_CONFIG_HOME/licoman/preferences.toml`) |
 | Setting row anatomy | `apps/licoman/src/ui/mod.rs` (`setting_row`, `settings_group`) |
 | Main window / palette / apply bar | `apps/licoman/src/ui/main_window.rs` |
-| Applications window | `apps/licoman/src/ui/apps_window.rs` |
-| Preferences window | `apps/licoman/src/ui/preferences_window.rs` |
+| Applications panel | `apps/licoman/src/ui/apps_panel.rs` |
+| Settings panel | `apps/licoman/src/ui/preferences_panel.rs` |
 | Mock data (labeled as such) | `apps/licoman/src/mock.rs` |
 
 Fresh installs launch **Dark**. Light and System are user-selectable in
-`Licoman → Preferences → Appearance` (Ctrl+,). System resolves through the
-desktop appearance signal and falls back to Dark, disclosed in Preferences.
+`Settings → Appearance` (gear button or Ctrl+,). System resolves through the
+desktop appearance signal and falls back to Dark, disclosed in Settings.
 The preference file is only created after the user changes a preference.

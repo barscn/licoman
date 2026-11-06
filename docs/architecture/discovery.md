@@ -142,7 +142,7 @@ settings.
 - The UI adapter (`licoman_ui::app_state::EnvironmentState`) runs stages on
   GPUI's background executor, publishing a partial snapshot after every
   stage. The UI thread never blocks; loading and partial results are
-  visible (footer + Applications window).
+  visible (Applications panel).
 - Cancellation: `ScanControl` (an `AtomicBool`) is checked between stages
   and between file batches; a user-visible **Refresh** cancels the in-flight
   scan and starts a new one. A generation counter ensures stale scans never

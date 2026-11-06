@@ -68,20 +68,20 @@ useful for screenshots and visual review. All values:
 
 | Value | Shows |
 |---|---|
-| `apps` | Applications window |
-| `prefs` | Licoman Preferences window |
-| `light` / `light-apps` | Light theme, main / Applications window |
+| `apps` | Applications panel in the main window |
+| `prefs` | Settings panel in the main window |
+| `light` / `light-apps` | Light theme, Summary / Applications panel |
 | `failed` | Failed write state (Retry/Revert) |
 | `distro` / `desktop` | Distribution / Desktop scope |
 | `dirty` | One staged edit + apply bar |
 | `palette` | Global search palette open |
 | `empty` | No providers registered (unavailable state) |
 | `arch-hyprland`, `fedora-gnome`, `ubuntu-x11`, `debian-xfce`, `multi-xdg`, `unknown` | Discovery demo snapshots built through the real parsers (environments this machine cannot run) |
-| `all-apps` | Applications window opened directly in the "All installed" view |
-| `app-detail` | Applications window with an installed module-backed app selected (registry-driven tabs and rows) |
+| `all-apps` | Applications panel opened directly in the "All installed" view |
+| `app-detail` | Applications panel with an installed module-backed app selected (registry-driven tabs and rows) |
 | `reads` | Read backends on fixture data: real GSettings values with origin lines, plus the Source details dialog |
 | `reads-power` | The power-profiles service absent: truthful per-row unavailability |
-| `reads-apps` | Applications window: Alacritty rows read from the fixture TOML config |
+| `reads-apps` | Applications panel: Alacritty rows read from the fixture TOML config |
 | `writes` | Safe write engine on a temp fixture copy + fake service: staged edits, apply bar (nothing outside the temp dir is touched) |
 | `writes-conflict` | A staged row changed externally: conflict state with Reload/Compare, no overwrite |
 | `writes-permission` | A permission-held row: lock, honest authorize dialog (deny-by-default broker) |
