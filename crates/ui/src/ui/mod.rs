@@ -3,9 +3,9 @@
 //! (01_DESIGN_SYSTEM.md §5). Presentational only — interactive controls are
 //! wired in the window views, where view state is known.
 
-pub mod apps_window;
+pub mod apps_panel;
 pub mod main_window;
-pub mod preferences_window;
+pub mod preferences_panel;
 pub mod setting_controls;
 pub mod summary_panel;
 pub mod user_panel;

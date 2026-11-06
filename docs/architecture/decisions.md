@@ -735,3 +735,25 @@ deeper renderer failure (broken driver) is actionable rather than raw.
 **Why:** 09 plan §2 — "exit gracefully with an actionable diagnostic and a
 link to troubleshooting"; the common failure shapes (no loader, no driver
 manifest) are cheaply detectable without ever touching the GPU.
+
+## D61 — Licoman is a single-window app with animated content-area transitions
+
+**Decision:** Applications and Settings render as panels inside the main
+window's content area (`AppsPanel`, `preferences_panel::render`) instead of
+opening dedicated native windows. The sidebar's Applications entry is a
+plain scope (`SelectScope(Scope::Application)`); the gear button and Ctrl+,
+switch the content area to the Settings view (`Scope::Settings`, a new
+non-settings-universe scope like `User`). Every scope change slides the
+incoming pane in from the direction of the newly selected sidebar item
+(±24 px, 200 ms ease-out-cubic + fade) through gpui-kit's
+`EffectTransition`; the pane's clip wrapper keeps the slide from painting
+over the sidebar. The window-opening machinery (`open_apps_window*`,
+`open_preferences_window`, `open_or_focus`, `focus_window`, the secondary
+window geometry constants) is removed; `WindowSessions`/`WindowRegistry`
+remain for the main-window handle and navigation history.
+
+**Why:** three native windows for one product split the user's attention,
+made the Applications window lose the sidebar and apply bar, and needed
+open-or-focus plumbing for marginal benefit. A single window keeps every
+surface (search, apply bar, account) in one place, and content-area
+transitions give the navigation a consistent sense of place.

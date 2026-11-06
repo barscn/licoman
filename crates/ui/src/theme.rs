@@ -43,7 +43,8 @@ pub mod metrics {
     pub const TEXT_BODY: f32 = 13.;
     pub const TEXT_META: f32 = 12.;
 
-    // Window geometry
+    // Window geometry — Licoman is a single-window app; Applications and
+    // Settings render inside this window's content area.
     pub const MAIN_WINDOW_SIZE: gpui_kit::Size<gpui_kit::Pixels> = gpui_kit::Size {
         width: px(1160.),
         height: px(760.),
@@ -51,18 +52,6 @@ pub mod metrics {
     pub const MAIN_WINDOW_MIN: gpui_kit::Size<gpui_kit::Pixels> = gpui_kit::Size {
         width: px(760.),
         height: px(560.),
-    };
-    pub const APPS_WINDOW_SIZE: gpui_kit::Size<gpui_kit::Pixels> = gpui_kit::Size {
-        width: px(1180.),
-        height: px(760.),
-    };
-    pub const APPS_WINDOW_MIN: gpui_kit::Size<gpui_kit::Pixels> = gpui_kit::Size {
-        width: px(780.),
-        height: px(560.),
-    };
-    pub const PREFS_WINDOW_SIZE: gpui_kit::Size<gpui_kit::Pixels> = gpui_kit::Size {
-        width: px(620.),
-        height: px(420.),
     };
 }
 

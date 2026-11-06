@@ -1,13 +1,14 @@
-//! Applications window (03_ENVIRONMENT_DISCOVERY.md UI details, registry-
+//! Applications panel (03_ENVIRONMENT_DISCOVERY.md UI details, registry-
 //! driven since Phase 04): discovered applications merged with registered
 //! application modules from the module registry. Two views — **Supported**
 //! (module-backed) and **All installed** (everything discovered). Detail
 //! panels are built from the module's settings through the shared
 //! [`ControlSet`] factory; "Source details" shows recorded provenance.
 //! Unknown apps show the honest "No Licoman integration available yet."
-//! message and never fake settings.
+//! message and never fake settings. The panel renders inside the main
+//! window's content area (single-window IA); it is built lazily on the
+//! first `Scope::Application` selection.
 
-use gpui_kit::component::TitleBar;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -23,19 +24,18 @@ use gpui_kit::{
 };
 use licoman_core::descriptor::SettingDescriptor;
 use licoman_core::discovery::AppListEntry;
-use licoman_core::prefs::AppearanceMode;
 use licoman_core::{Command, SettingModel, WindowRole};
 
 use crate::actions::*;
-use crate::app_state::{AppEvent, AppState, ScanState, open_or_focus};
+use crate::app_state::{AppEvent, AppState, ScanState};
 use crate::theme::metrics;
 use crate::ui::setting_controls::{ControlSet, phase_status_text};
-use crate::ui::{OptionIntoAny as _, setting_row, support_tag};
+use crate::ui::{OptionIntoAny as _, setting_row, support_tag, window_heading};
 
 /// The exact honesty message required by the plan.
 const NO_INTEGRATION: &str = "No Licoman integration available yet.";
 
-pub struct AppsWindow {
+pub struct AppsPanel {
     app: Entity<AppState>,
     filter: Entity<InputState>,
     /// `false` = Supported (module-backed), `true` = All installed.
@@ -52,10 +52,9 @@ pub struct AppsWindow {
     /// all-read triggers one control rebuild.
     had_pending_reads: bool,
     _subscriptions: Vec<Subscription>,
-    _appearance_sub: Option<Subscription>,
 }
 
-impl AppsWindow {
+impl AppsPanel {
     pub fn new(app: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter apps…"));
 
@@ -131,16 +130,6 @@ impl AppsWindow {
             }
         }));
 
-        // Follow desktop appearance while `System` is selected.
-        let appearance_app = app.clone();
-        let appearance_sub = window.observe_window_appearance(move |_window, cx| {
-            appearance_app.update(cx, |state, cx| {
-                if state.store.preferences().theme == AppearanceMode::System {
-                    state.resolve_and_apply_theme(cx);
-                }
-            });
-        });
-
         Self {
             app,
             filter,
@@ -151,7 +140,6 @@ impl AppsWindow {
             rebuild_needed: false,
             had_pending_reads: true,
             _subscriptions: subscriptions,
-            _appearance_sub: Some(appearance_sub),
         }
     }
 
@@ -221,11 +209,7 @@ impl AppsWindow {
                             this.app.update(cx, |state, cx| {
                                 state.dispatch(Command::SelectApp { id: Some(identity) }, cx);
                                 let id = state.store.selected_app().unwrap_or_default();
-                                state.push_history(
-                                    WindowRole::Applications,
-                                    format!("app:{id}"),
-                                    cx,
-                                );
+                                state.push_history(WindowRole::Main, format!("app:{id}"), cx);
                             });
                             this.selected_tab = 0;
                             cx.notify();
@@ -780,7 +764,7 @@ impl AppsWindow {
             .into_any_element()
     }
 
-    /// Visual-verification hook (`LICOMAN_DEMO=all-apps`): open the window
+    /// Visual-verification hook (`LICOMAN_DEMO=all-apps`): show the panel
     /// directly in the "All installed" view.
     pub fn demo_show_all(&mut self) {
         self.show_all = true;
@@ -849,7 +833,7 @@ fn view_pill(
         .into_any_element()
 }
 
-impl Render for AppsWindow {
+impl Render for AppsPanel {
     fn render(
         &mut self,
         window: &mut Window,
@@ -894,7 +878,7 @@ impl Render for AppsWindow {
         };
 
         v_flex()
-            .key_context("AppsWindow")
+            .key_context("AppsPanel")
             .size_full()
             .bg(theme.background)
             .text_color(theme.foreground)
@@ -902,54 +886,40 @@ impl Render for AppsWindow {
                 let handle = this.filter.read(cx).focus_handle(cx).clone();
                 window.focus(&handle, cx);
             }))
-            .on_action(cx.listener(|this, _: &OpenPreferences, _window, cx| {
-                let app = this.app.clone();
-                open_or_focus(
-                    WindowRole::Preferences,
-                    move |cx| crate::windows::open_preferences_window(&app, cx),
-                    cx,
-                );
-            }))
-            .on_action(cx.listener(|_this, _: &OpenApplications, _window, _cx| {
-                // Already in the Applications window; nothing to open.
-            }))
+            // In-panel header: the old window TitleBar content, restyled as a
+            // content-area heading (single-window IA).
             .child(
-                TitleBar::new().h(px(metrics::HEADER_HEIGHT)).child(
-                    h_flex()
-                        .w_full()
-                        .h_full()
-                        .items_center()
-                        .gap_3()
-                        .px_2()
-                        .child(
-                            div()
-                                .text_size(px(metrics::TEXT_LABEL))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Applications"),
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_3()
+                    .px(px(metrics::CONTENT_PADDING))
+                    .pt_5()
+                    .pb_3()
+                    .child(window_heading("Applications", &theme))
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_size(px(metrics::TEXT_META))
+                            .text_color(theme.muted_foreground)
+                            .truncate()
+                            .child(subtitle),
+                    )
+                    .when(!refreshing, |bar| {
+                        bar.child(
+                            Button::new("refresh-discovery")
+                                .label("Refresh")
+                                .icon(IconName::RefreshCw)
+                                .small()
+                                .outline()
+                                .on_click(cx.listener(
+                                    |this, _: &gpui_kit::ClickEvent, _window, cx| {
+                                        this.app
+                                            .update(cx, |state, cx| state.refresh_environment(cx));
+                                    },
+                                )),
                         )
-                        .child(
-                            div()
-                                .text_size(px(metrics::TEXT_META))
-                                .text_color(theme.muted_foreground)
-                                .child(subtitle),
-                        )
-                        .when(!refreshing, |bar| {
-                            bar.child(
-                                Button::new("refresh-discovery")
-                                    .label("Refresh")
-                                    .icon(IconName::RefreshCw)
-                                    .small()
-                                    .outline()
-                                    .on_click(cx.listener(
-                                        |this, _: &gpui_kit::ClickEvent, _window, cx| {
-                                            this.app.update(cx, |state, cx| {
-                                                state.refresh_environment(cx)
-                                            });
-                                        },
-                                    )),
-                            )
-                        }),
-                ),
+                    }),
             )
             .child(
                 h_flex()

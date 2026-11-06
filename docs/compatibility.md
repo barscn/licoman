@@ -48,12 +48,12 @@ Reference machine for the live evidence: Arch Linux (x86_64, kernel
 |---|---|---|
 | Search index build, 1,240 synthetic settings | — | 1.42 ms (debug test; release re-measured in the Phase 09 quality gates) |
 | Search query p95, 1,240 settings | < 100 ms | **0.38 ms** (`scale_search_latency_1000_settings_100_apps`, 12 queries × 3 runs) |
-| Rendered catalog | 1,000+ settings scrollable | 1,000-row category in the main window through the virtualized list (`p08-scale-list.png`); 100+ apps in the Applications window |
+| Rendered catalog | 1,000+ settings scrollable | 1,000-row category in the main window through the virtualized list (`p08-scale-list.png`); 100+ apps in the Applications view |
 
 ## What is deliberately NOT claimed
 
 - "Every Linux setting" — no. Coverage is incremental per backend, and the
-  Applications window keeps unsupported-but-installed apps visible with a
+  Applications view keeps unsupported-but-installed apps visible with a
   real integration-status explanation.
 - Universal file-format editing — TOML and mpv's documented grammar only;
   other formats are recorded but not read.

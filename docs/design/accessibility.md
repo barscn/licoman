@@ -4,8 +4,8 @@
 
 | Keys | Context | Action |
 |---|---|---|
-| `Ctrl+K` | MainWindow / AppsWindow | Open search palette (main) — bound per window; apps window focuses its filter |
-| `Ctrl+F` | MainWindow / AppsWindow | Focus current window's search field |
+| `Ctrl+K` | MainWindow / AppsPanel | Open search palette (main) — bound per context; the apps panel focuses its filter |
+| `Ctrl+F` | MainWindow / AppsPanel | Focus current search field |
 | `↑` / `↓` | SearchPalette | Move palette selection |
 | `Enter` | palette input | Accept highlighted result |
 | `Esc` | SearchPalette | Dismiss palette, focus returns to the header search field |
@@ -36,7 +36,7 @@ gpui client; a WIP `zwp_virtual_keyboard_v1` injector
 (`tests/tools/vk_injector.c`) does not work against this Hyprland build yet.
 The following must be walked through by a person on a real session:
 
-1. Launch → Tab to sidebar → select Desktop scope → open Applications window.
+1. Launch → Tab to sidebar → select Desktop scope → open the Applications view.
 2. `Ctrl+K` → type "power" → `↓`/`↑` → `Enter` → palette closes, scope jumps.
 3. `Ctrl+,` from each window → Preferences opens/focuses → switch theme with
    keyboard only → both windows repaint without focus loss.

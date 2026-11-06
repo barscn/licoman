@@ -7,9 +7,9 @@
 //! is owned. Provenance lives on the descriptor: `module_id` records which
 //! module declared the setting, `keywords` feed the search index.
 
-/// Licoman's information architecture (00_START_HERE.md). `Application`
-/// settings render in the dedicated Applications window, never in the
-/// main-window sidebar.
+/// Licoman's information architecture. Every scope renders inside the main
+/// window's content area: `Application` as the apps panel, `Settings` as the
+/// product preferences panel, the rest as registry-driven settings lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Scope {
     Shared,
@@ -22,6 +22,10 @@ pub enum Scope {
     /// through AccountsService; not a settings universe — no module targets
     /// it, and [`Scope::ALL`] deliberately excludes it).
     User,
+    /// Main-window product preferences panel (Licoman's own appearance,
+    /// file diagnostics, About — not a settings universe, same exclusions
+    /// as [`Scope::User`]).
+    Settings,
 }
 
 impl Scope {
@@ -32,10 +36,10 @@ impl Scope {
         Scope::Application,
     ];
 
-    /// The scopes offered in the main-window sidebar. `Application` is
-    /// deliberately absent: it has its own window (00_START_HERE.md IA).
-    /// `User` is also absent: it is reached through the sidebar's user card,
-    /// not a menu item.
+    /// The scopes whose rows the main window's shared control set covers.
+    /// `Application` is deliberately absent: its rows are covered by the
+    /// apps panel's own control set. `Summary`, `User` and `Settings` are
+    /// absent too: they render bespoke panels with no registry rows.
     pub const SIDEBAR: [Scope; 4] = [
         Scope::Summary,
         Scope::Shared,
@@ -51,6 +55,7 @@ impl Scope {
             Scope::Application => "Applications",
             Scope::Summary => "Summary",
             Scope::User => "User",
+            Scope::Settings => "Settings",
         }
     }
 
@@ -62,6 +67,9 @@ impl Scope {
             Scope::Application => "Settings for your installed applications.",
             Scope::Summary => "Hardware and system facts of this machine.",
             Scope::User => "Your account on this system.",
+            Scope::Settings => {
+                "Licoman's own preferences — appearance, file diagnostics and About."
+            }
         }
     }
 }

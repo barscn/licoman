@@ -107,7 +107,7 @@ event-driven, not polled.
 | Quiet Control theme mapping | `crates/ui/src/theme.rs` |
 | View adapter (store entity, events, timers) | `crates/ui/src/app_state.rs` |
 | Windows (geometry, titles) | `crates/ui/src/windows.rs` |
-| Main/Applications/Preferences windows | `crates/ui/src/ui/*.rs` |
+| Main window + Applications/Settings panels | `crates/ui/src/ui/*.rs` |
 | CLI (`--help`, `--version`) | `apps/licoman/src/cli.rs` |
 | Bootstrap | `apps/licoman/src/main.rs` |
 
