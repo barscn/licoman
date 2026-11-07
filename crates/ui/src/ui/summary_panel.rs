@@ -78,6 +78,7 @@ pub fn render(state: &AppState, theme: &Theme) -> AnyElement {
         .overflow_y_scrollbar()
         .child(
             v_flex()
+                .min_w_0()
                 .max_w(px(metrics::CONTENT_MAX_WIDTH))
                 .gap_3()
                 .child(window_heading(Scope::Summary.label(), theme))
@@ -92,6 +93,7 @@ pub fn render(state: &AppState, theme: &Theme) -> AnyElement {
             // The hero: logo + OS name. Read from the same snapshot as the
             // rows, so it never contradicts them.
             h_flex()
+                .min_w_0()
                 .max_w(px(metrics::CONTENT_MAX_WIDTH))
                 .items_center()
                 .gap_4()
@@ -118,6 +120,7 @@ pub fn render(state: &AppState, theme: &Theme) -> AnyElement {
         )
         .child(
             v_flex()
+                .min_w_0()
                 .max_w(px(metrics::CONTENT_MAX_WIDTH))
                 .when(facts.is_none(), |list| {
                     list.child(

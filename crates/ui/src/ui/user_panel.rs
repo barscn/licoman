@@ -431,6 +431,7 @@ impl Render for UserAccountPanel {
             .overflow_y_scrollbar()
             .child(
                 v_flex()
+                    .min_w_0()
                     .max_w(px(metrics::CONTENT_MAX_WIDTH))
                     .gap_3()
                     .child(window_heading(Scope::User.label(), &theme))
@@ -454,6 +455,7 @@ impl Render for UserAccountPanel {
             .child(
                 // Full name: one input + Apply.
                 v_flex()
+                    .min_w_0()
                     .max_w(px(metrics::CONTENT_MAX_WIDTH))
                     .gap_2()
                     .child(
@@ -486,6 +488,7 @@ impl Render for UserAccountPanel {
                 // Password: new + verify + Apply; the service authorizes the
                 // active session itself — no current-password prompt.
                 v_flex()
+                    .min_w_0()
                     .max_w(px(metrics::CONTENT_MAX_WIDTH))
                     .gap_2()
                     .child(

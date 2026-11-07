@@ -56,6 +56,7 @@ pub fn render(app: &Entity<AppState>, cx: &App) -> AnyElement {
         .child(window_heading("Settings", &theme))
         .child(
             v_flex()
+                .min_w_0()
                 .max_w(px(metrics::CONTENT_MAX_WIDTH))
                 .gap_2()
                 .child(
@@ -110,6 +111,7 @@ pub fn render(app: &Entity<AppState>, cx: &App) -> AnyElement {
         .when(!diagnostics.is_empty(), |root| {
             root.child(
                 v_flex()
+                    .min_w_0()
                     .max_w(px(metrics::CONTENT_MAX_WIDTH))
                     .gap_1()
                     .child(
@@ -139,6 +141,7 @@ pub fn render(app: &Entity<AppState>, cx: &App) -> AnyElement {
         })
         .child(
             v_flex()
+                .min_w_0()
                 .max_w(px(metrics::CONTENT_MAX_WIDTH))
                 .gap_1()
                 .child(

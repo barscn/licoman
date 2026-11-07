@@ -622,6 +622,7 @@ impl MainWindow {
             .gap_4()
             .child(
                 v_flex()
+                    .min_w_0()
                     .max_w(px(metrics::CONTENT_MAX_WIDTH))
                     .gap_3()
                     .child(window_heading(scope.label(), &theme))
@@ -683,6 +684,7 @@ impl MainWindow {
                 v_flex()
                     .flex_1()
                     .min_h_0()
+                    .min_w_0()
                     .max_w(px(metrics::CONTENT_MAX_WIDTH))
                     .child(list_element),
             )
@@ -1426,11 +1428,15 @@ impl SettingRowView {
                                             |_this, _: &ClickEvent, window, cx| {
                                                 window.open_alert_dialog(cx, |alert, _window, _cx| {
                                                     alert
-                                                        .title(
-                                                            "Authorization is not available in this build",
-                                                        )
+                                                        .title("Authorization required")
                                                         .description(
-                                                            "Licoman runs unprivileged. Privileged edits are deferred until the safe write engine and its authorization flow are implemented and reviewed (Phases 06–07). No system configuration was modified.",
+                                                            "Licoman runs unprivileged: its permission \
+                                                             broker denies privileged operations by \
+                                                             default, no password is ever requested, \
+                                                             and nothing was modified. A minimal \
+                                                             polkit-checked helper with an operation \
+                                                             allowlist is the documented future design \
+                                                             (docs/security/threat-model.md).",
                                                         )
                                                 });
                                             },
@@ -1461,6 +1467,7 @@ impl SettingRowView {
                     })
                     .unwrap_or_else(|| "an authorization boundary".to_string());
                 let authorize_id = SharedString::from(format!("authorize-{id}"));
+                let authorize_scope = scope.clone();
                 let revert_setting_id = id.clone();
                 Some(
                     v_flex()
@@ -1480,22 +1487,31 @@ impl SettingRowView {
                                     .outline()
                                     .xsmall()
                                     .on_click(cx.listener(
-                                        |_this, _: &ClickEvent, window, cx| {
-                                            window.open_alert_dialog(cx, |alert, _window, _cx| {
-                                                alert
-                                                    .title(
-                                                        "Authorization is not available in this build",
-                                                    )
-                                                    .description(
-                                                        "Licoman runs unprivileged. Privileged writes are denied by default by the permission broker; no password is ever requested and no system configuration was modified.",
-                                                    )
-                                            });
+                                        move |_this, _: &ClickEvent, window, cx| {
+                                            let description = format!(
+                                                "This change is held behind the authorization \
+                                                 boundary “{authorize_scope}”. Licoman runs \
+                                                 unprivileged: its permission broker denies \
+                                                 privileged writes by default, no password is ever \
+                                                 requested, and nothing was modified. A minimal \
+                                                 polkit-checked helper with an operation allowlist \
+                                                 is the documented future design \
+                                                 (docs/security/threat-model.md)."
+                                            );
+                                            window.open_alert_dialog(
+                                                cx,
+                                                move |alert, _window, _cx| {
+                                                    alert
+                                                        .title("Authorization required")
+                                                        .description(description.clone())
+                                                },
+                                            );
                                         },
                                     )),
                             ),
                         )
                         .child(self.revert_edit_button(&revert_setting_id, cx))
-                            .into_any_element(),
+                        .into_any_element(),
                 )
             }
             SettingPhase::Idle => {

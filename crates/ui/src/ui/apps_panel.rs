@@ -222,12 +222,15 @@ impl AppsPanel {
                             .gap_2()
                             .child(
                                 div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
                                     .text_size(px(metrics::TEXT_LABEL))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(theme.foreground)
                                     .child(entry.display_name.clone()),
                             )
-                            .child(support_tag(entry.support)),
+                            .child(div().flex_shrink_0().child(support_tag(entry.support))),
                     )
                     .child(
                         div()
@@ -285,60 +288,71 @@ impl AppsPanel {
                     .small()
                     .cleanable(true),
             )
-            .when(matches!(scan, ScanState::Loading { .. }) && empty, |list| {
-                list.child(
-                    v_flex()
-                        .pt_8()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            Icon::new(IconName::LoaderCircle)
-                                .large()
-                                .text_color(theme.muted_foreground),
+            // Rows scroll under the pinned view switch and filter; the
+            // "All installed" view lists every discovered application.
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .id("apps-list-items")
+                    .overflow_y_scrollbar()
+                    .gap_2()
+                    .when(matches!(scan, ScanState::Loading { .. }) && empty, |list| {
+                        list.child(
+                            v_flex()
+                                .pt_8()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    Icon::new(IconName::LoaderCircle)
+                                        .large()
+                                        .text_color(theme.muted_foreground),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(metrics::TEXT_BODY))
+                                        .text_color(theme.foreground)
+                                        .child("Discovering applications…"),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(metrics::TEXT_META))
+                                        .text_color(theme.muted_foreground)
+                                        .child("Application directories are scanned read-only."),
+                                ),
                         )
-                        .child(
-                            div()
-                                .text_size(px(metrics::TEXT_BODY))
-                                .text_color(theme.foreground)
-                                .child("Discovering applications…"),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(metrics::TEXT_META))
-                                .text_color(theme.muted_foreground)
-                                .child("Application directories are scanned read-only."),
-                        ),
-                )
-            })
-            .when(
-                !matches!(scan, ScanState::Loading { .. }) && empty,
-                |list| {
-                    list.child(
-                        v_flex()
-                            .pt_8()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                Icon::new(IconName::Inbox)
-                                    .large()
-                                    .text_color(theme.muted_foreground),
+                    })
+                    .when(
+                        !matches!(scan, ScanState::Loading { .. }) && empty,
+                        |list| {
+                            list.child(
+                                v_flex()
+                                    .pt_8()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        Icon::new(IconName::Inbox)
+                                            .large()
+                                            .text_color(theme.muted_foreground),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(metrics::TEXT_BODY))
+                                            .text_color(theme.foreground)
+                                            .child("No applications match"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(metrics::TEXT_META))
+                                            .text_color(theme.muted_foreground)
+                                            .child("Adjust the filter or the view switch."),
+                                    ),
                             )
-                            .child(
-                                div()
-                                    .text_size(px(metrics::TEXT_BODY))
-                                    .text_color(theme.foreground)
-                                    .child("No applications match"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(metrics::TEXT_META))
-                                    .text_color(theme.muted_foreground)
-                                    .child("Adjust the filter or the view switch."),
-                            ),
+                        },
                     )
-                },
+                    .when(!empty, |list| list.children(items))
+                    .into_any_element(),
             )
-            .when(!empty, |list| list.children(items))
             .into_any_element()
     }
 
@@ -455,18 +469,20 @@ impl AppsPanel {
             self.selected_tab = 0;
         }
 
-        let mut header = v_flex().gap_1().child(
+        let mut header = v_flex().min_w_0().gap_1().child(
             h_flex()
                 .gap_3()
                 .items_center()
                 .child(
                     div()
+                        .min_w_0()
+                        .truncate()
                         .text_size(px(metrics::TEXT_PAGE_HEADING))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme.foreground)
                         .child(display_title),
                 )
-                .child(support_tag(entry.support)),
+                .child(div().flex_shrink_0().child(support_tag(entry.support))),
         );
         if !description.is_empty() {
             header = header.child(
@@ -526,6 +542,7 @@ impl AppsPanel {
         // The selected group's rows, registry-driven through the ControlSet.
         let body: gpui_kit::AnyElement = match groups.get(self.selected_tab) {
             None => v_flex()
+                .min_w_0()
                 .gap_2()
                 .pt_4()
                 .child(
@@ -568,6 +585,7 @@ impl AppsPanel {
                     })
                     .collect();
                 v_flex()
+                    .min_w_0()
                     .gap_6()
                     .pt_4()
                     .child(crate::ui::settings_group(group_name.clone(), rendered, &theme))
@@ -633,14 +651,23 @@ impl AppsPanel {
             .min_h_0()
             .id("apps-detail")
             .overflow_y_scrollbar()
-            .px(px(metrics::CONTENT_PADDING))
-            .py_5()
-            .max_w(px(
-                metrics::CONTENT_MAX_WIDTH + metrics::CONTENT_PADDING * 2.
-            ))
-            .child(header)
-            .when(groups.len() > 1, |detail| detail.child(tab_bar))
-            .child(body)
+            // The reading-measure cap and the padding live on an inner
+            // wrapper that stretches to the pane: long text reports its full
+            // unwrapped line as its minimum content size, so a capped box
+            // without `min_w_0` is forced past the pane and overflows it
+            // instead of wrapping. `min_w_0` + stretch sizes the wrapper to
+            // the pane (clamped to the cap on wide windows) and the text
+            // wraps inside it.
+            .child(
+                v_flex()
+                    .min_w_0()
+                    .max_w(px(metrics::CONTENT_MAX_WIDTH))
+                    .px(px(metrics::CONTENT_PADDING))
+                    .py_5()
+                    .child(header)
+                    .when(groups.len() > 1, |detail| detail.child(tab_bar))
+                    .child(body),
+            )
             .into_any_element()
     }
 
@@ -677,13 +704,15 @@ impl AppsPanel {
             .min_h_0()
             .id("apps-detail")
             .overflow_y_scrollbar()
-            .px(px(metrics::CONTENT_PADDING))
-            .py_5()
-            .max_w(px(
-                metrics::CONTENT_MAX_WIDTH + metrics::CONTENT_PADDING * 2.
-            ))
             .child(
+                // Same cap-on-stretching-wrapper rule as the module detail
+                // above: min_w_0 keeps long text from forcing the box past
+                // the pane, and the cap only binds on wide windows.
                 v_flex()
+                    .min_w_0()
+                    .max_w(px(metrics::CONTENT_MAX_WIDTH))
+                    .px(px(metrics::CONTENT_PADDING))
+                    .py_5()
                     .gap_1()
                     .child(
                         h_flex()
@@ -691,15 +720,18 @@ impl AppsPanel {
                             .items_center()
                             .child(
                                 div()
+                                    .min_w_0()
+                                    .truncate()
                                     .text_size(px(metrics::TEXT_PAGE_HEADING))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(theme.foreground)
                                     .child(entry.display_name.clone()),
                             )
-                            .child(support_tag(entry.support)),
+                            .child(div().flex_shrink_0().child(support_tag(entry.support))),
                     )
                     .child(
                         div()
+                            .min_w_0()
                             .text_size(px(metrics::TEXT_LABEL))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(theme.foreground)
@@ -708,6 +740,7 @@ impl AppsPanel {
                     )
                     .child(
                         div()
+                            .min_w_0()
                             .text_size(px(metrics::TEXT_BODY))
                             .text_color(theme.muted_foreground)
                             .child(
@@ -741,25 +774,41 @@ impl AppsPanel {
             .justify_center()
             .gap_2()
             .child(
-                div()
-                    .text_size(px(metrics::TEXT_PAGE_HEADING))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.foreground)
-                    .child(title),
-            )
-            .child(support_tag(entry.support))
-            .child(
-                div()
-                    .text_size(px(metrics::TEXT_BODY))
-                    .text_color(theme.muted_foreground)
+                // The centered block is capped by an inner wrapper with an
+                // explicit width: this pane centers its children, so a bare
+                // max-width would lay the description out at its max-content
+                // size and overflow the pane. The wrapper's `w_full` resolves
+                // against this unpadded pane (percentage widths ignore parent
+                // padding in this engine), and the description's own padding
+                // keeps the text inset.
+                v_flex()
+                    .w_full()
+                    .min_w_0()
                     .max_w(px(metrics::CONTENT_MAX_WIDTH))
-                    .child(if description.is_empty() {
-                        "Licoman has a module registered, but the application was not detected \
-                         on this system."
-                            .to_string()
-                    } else {
-                        description
-                    }),
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(px(metrics::TEXT_PAGE_HEADING))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme.foreground)
+                            .child(title),
+                    )
+                    .child(support_tag(entry.support))
+                    .child(
+                        div()
+                            .w_full()
+                            .px(px(metrics::CONTENT_PADDING))
+                            .text_size(px(metrics::TEXT_BODY))
+                            .text_color(theme.muted_foreground)
+                            .child(if description.is_empty() {
+                                "Licoman has a module registered, but the application was not \
+                                 detected on this system."
+                                    .to_string()
+                            } else {
+                                description
+                            }),
+                    ),
             )
             .into_any_element()
     }
