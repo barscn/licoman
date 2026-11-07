@@ -522,7 +522,8 @@ pub fn parse_change_message(message: &zbus::Message) -> Option<XfconfChange> {
 /// Subscribe to the Xfconf change signals on a dedicated thread, forwarding
 /// each notification to `notify` (the caller debounces, exactly like the
 /// GSettings native watcher). The thread owns its connection; the returned
-/// guard cancels and joins it. Returns `None` when the session bus or the
+/// guard cancels it — the thread exits at its next wakeup, never joined
+/// (see the `Drop` impl for why). Returns `None` when the session bus or the
 /// signal subscription is unavailable — Refresh remains the invalidation
 /// path, as with every watcher.
 pub fn spawn_change_watcher(
@@ -578,9 +579,21 @@ pub struct XfconfChangeWatch {
 impl Drop for XfconfChangeWatch {
     fn drop(&mut self) {
         let _ = self.cancel.send(());
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
-        }
+        // Never join. The watcher blocks inside the zbus `MessageIterator`,
+        // which only yields when xfconfd broadcasts a change signal, and the
+        // cancel flag is only consulted between signals — a quiet bus parks
+        // the thread indefinitely. Joining from the live run blocks the UI
+        // thread: the drop happens during window teardown on the main
+        // thread, where the hang keeps the Wayland event loop from answering
+        // the compositor's pings and from completing the close request
+        // (observed as the desktop's "application not responding" dialog on
+        // close). The queued cancel makes the thread exit at its next
+        // wakeup; a thread parked on a quiet bus is reaped when the process
+        // exits. The guard is created once per process (AppState), so
+        // detached watchers cannot accumulate.
+        //
+        // Dropping the handle detaches the thread.
+        drop(self.join.take());
     }
 }
 
