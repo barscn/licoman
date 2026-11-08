@@ -5,3 +5,10 @@ flamegraph.svg
 
 # ZCode session-local working files
 .zcode/
+
+# makepkg artifacts (install-arch.sh builds in packaging/licoman/build/)
+packaging/licoman/src/
+packaging/licoman/pkg/
+packaging/licoman/build/
+packaging/licoman/*.tar.gz
+packaging/licoman/*.pkg.tar.*

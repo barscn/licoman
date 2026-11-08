@@ -14,8 +14,20 @@ web stack, no daemon and no telemetry. Requirements:
 
 ### Arch (PKGBUILD — the tested target)
 
-The repository ships `packaging/licoman/PKGBUILD`. From a release tarball
-(`git archive` of the release tag):
+The repository ships `packaging/licoman/PKGBUILD`. The shortcut is
+`./install-arch.sh`, which produces the source tarball, pins its sha256
+into a staging copy of the PKGBUILD (the repository copy is never
+modified), runs `makepkg` and installs the result with pacman:
+
+```sh
+./install-arch.sh            # tag v<pkgver> if it exists, else committed HEAD
+./install-arch.sh --worktree # include uncommitted, non-ignored changes
+./install-arch.sh --no-install --no-check   # package only, skip tests/install
+```
+
+The built package file is kept in `packaging/licoman/` and makepkg
+artifacts land in `packaging/licoman/build/` (git-ignored). Manually, the
+same flow from a release tarball (`git archive` of the release tag) is:
 
 ```sh
 makepkg -ef
@@ -46,6 +58,12 @@ cd licoman
 cargo run --release -p licoman        # the GUI application
 cargo run -p licoman -- --diagnostics # headless environment facts (read-only)
 ```
+
+To install a source build instead of running it in place,
+`./install.sh` installs the same file set as the Arch package — binary,
+launcher, icons, AppStream metadata, license notices, offline docs —
+with `--user` for a `~/.local` install (no root), `--prefix DIR` for a
+custom prefix and `--uninstall` to remove it again.
 
 Build requirements: a stable Rust toolchain (edition 2024 — e.g. via
 [rustup](https://rustup.rs)), `pkg-config`, and the gpui Linux build

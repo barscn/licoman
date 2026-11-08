@@ -111,8 +111,15 @@ exits with a readable diagnostic. Details and troubleshooting:
 ### Arch package
 
 The repository ships a [PKGBUILD](packaging/licoman/PKGBUILD) (the tested
-packaging target). Build it from a release tarball (`git archive` of the
-release tag):
+packaging target). The shortcut is the packaged-install script, which
+produces the source tarball, pins its sha256 into the PKGBUILD, runs
+`makepkg` and installs the result:
+
+```sh
+./install-arch.sh            # add --no-install to only build the package
+```
+
+Manually, the same flow is:
 
 ```sh
 makepkg -ef
@@ -147,6 +154,14 @@ Run it in place:
 
 Or install the binary system-wide (plus, optionally, the desktop launcher,
 AppStream metadata and icon):
+
+```sh
+./install.sh                 # system install to /usr/local (sudo only if needed)
+./install.sh --user          # user install to ~/.local, no root
+./install.sh --uninstall     # remove a previous install
+```
+
+The script installs the same file set as the Arch package. Manually:
 
 ```sh
 sudo install -Dm755 target/release/licoman /usr/local/bin/licoman
