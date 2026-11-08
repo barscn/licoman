@@ -92,6 +92,10 @@ sudo pacman -S --needed \
   openssl zstd vulkan-headers glib2
 ```
 
+The Rust toolchain itself is not in the Arch list: the repositories have
+no package named `cargo`. If the toolchain is not managed by rustup,
+install the `rust` package (it ships `cargo`; `rustup` also provides it).
+
 ## First run
 
 - The theme defaults to **Dark**; Light and System are selectable in the

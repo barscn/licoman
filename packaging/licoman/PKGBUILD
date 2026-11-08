@@ -31,7 +31,19 @@ depends=(
   zstd
   alsa-lib
 )
-makedepends=(cargo clang)
+# Toolchain resolution decided at source time (makepkg sources the PKGBUILD
+# before its dependency check, so this is the "before installation" hook):
+# the Arch repos have no package named "cargo" — pacman's rust package
+# ships it (Provides: cargo) and a rustup-managed toolchain puts it on PATH
+# outside pacman entirely. Depending on `cargo` unconditionally therefore
+# breaks resolution on machines that already have a working toolchain
+# ("target not found: cargo"), and depending on `rust` unconditionally
+# would conflict with rustup installs. Depend on `rust` only when no cargo
+# is on PATH. (Accepted caveat: SRCINFO generated on a machine with a
+# toolchain won't list rust — this PKGBUILD ships with the repository, not
+# on the AUR.)
+makedepends=(clang)
+command -v cargo >/dev/null 2>&1 || makedepends+=(rust)
 optdepends=(
   'mesa-vulkan-radeon: AMD GPU Vulkan driver (Mesa)'
   'vulkan-intel: Intel GPU Vulkan driver (Mesa)'

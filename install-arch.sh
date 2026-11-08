@@ -56,15 +56,22 @@ if [ -n "${INSTALL_DEPS:-}" ]; then
   sudo pacman -S --needed base-devel clang
 fi
 
-# The PKGBUILD's makedepends; the runtime depends are resolved by pacman -U
-# at install time, so only the build side is checked here.
+# Build-side prerequisites, checked as commands (not package names): a
+# rustup-managed cargo satisfies the build exactly like pacman's rust
+# package does. The hint maps each missing tool to the repo package that
+# ships it — the repos have no package named "cargo"; rust ships it, and
+# rust is only suggested when no cargo exists (rust and rustup conflict,
+# so it must never be pushed onto a rustup machine).
 _missing=()
 for _tool in makepkg cargo clang pkg-config; do
   command -v "$_tool" >/dev/null 2>&1 || _missing+=("$_tool")
 done
 if [ "${#_missing[@]}" -gt 0 ]; then
-  echo "install-arch.sh: missing build dependencies: ${_missing[*]}" >&2
-  echo "install them with:  sudo pacman -S --needed base-devel clang" >&2
+  _pkgs=(base-devel)   # makepkg and pkg-config ship in base-devel
+  command -v clang >/dev/null 2>&1 || _pkgs+=(clang)
+  command -v cargo >/dev/null 2>&1 || _pkgs+=(rust)
+  echo "install-arch.sh: missing build tools: ${_missing[*]}" >&2
+  echo "install them with:  sudo pacman -S --needed ${_pkgs[*]}" >&2
   exit 1
 fi
 
